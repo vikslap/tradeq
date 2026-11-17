@@ -11,8 +11,8 @@ The game rewards **process, not profit**. You earn XP for setting a stop before 
 Requires **Node.js 18+**. There are no npm dependencies.
 
 ```bash
-git clone https://github.com/vikslap/tradequest.git
-cd tradequest
+git clone https://github.com/vikslap/tradeq.git
+cd tradeq
 
 npm run demo     # try it: sample journal + simulated prices → http://127.0.0.1:5173
 npm start        # your real journal (data/journal.json)
