@@ -1,0 +1,16 @@
+{
+  "name": "tradequest",
+  "version": "1.0.0",
+  "description": "A gamified stock trading journal with manual and live Zerodha Kite Connect prices. Rewards process, not profit.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "node scripts/demo.js",
+    "test": "node --test test/*.test.js"
+  }
+}
