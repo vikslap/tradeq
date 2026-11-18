@@ -428,3 +428,6 @@ form[data-horizon="LONGTERM"] span.lt-only { display: inline !important; }
 .draw-bar .btn.on { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
 
 #pa-order[data-otype="MARKET"] .otype-px { display: none; }
+
+details.charges summary { cursor: pointer; font-size: 12px; margin: 2px 0 4px; }
+details.charges .stat-line { padding: 3px 0; font-size: 12px; }

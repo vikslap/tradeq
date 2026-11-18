@@ -69,7 +69,7 @@ for (let i = 0; i < 34; i++) {
     if (sloppy) r = outcome < 0.7 ? -(1.3 + rnd() * 0.9) : 0.3 + rnd() * 0.6; // rule-breakers mostly lose, and lose big
     const exitTime = new Date(entryTime.getTime() + (1 + rnd() * (segment === 'EQ' ? 25 : 4)) * 86400e3);
     Object.assign(t, {
-      status: 'CLOSED', exitPrice: round(entry + dir * riskPU * r), exitTime: exitTime.toISOString(), charges: Math.round(20 + rnd() * 60),
+      status: 'CLOSED', exitPrice: round(entry + dir * riskPU * r), exitTime: exitTime.toISOString(),
       exitReason: r < -0.6 ? 'Stop hit' : r > 1.8 ? pick(['Target hit', 'Trailing stop']) : pick(['Discretionary', 'Thesis invalid', 'Time exit']),
       followedPlan: !sloppy && rnd() < 0.9, emotionExit: r > 0 ? pick(['Satisfied', 'Calm']) : pick(['Calm', 'Frustrated']),
       lessons: rnd() < 0.8 ? pick(LESSONS) : '', rating: sloppy ? 2 : 3 + Math.floor(rnd() * 3), exitSource: rnd() < 0.5 ? 'live' : 'manual',

@@ -22,7 +22,8 @@ export function reconcile(trades, { holdings = [], positions = [] }, ignore = []
     if (t.status !== 'OPEN') continue;
     const k = keyOf(t.exchange, t.symbol);
     const j = (journal[k] ||= { key: k, symbol: t.symbol, exchange: t.exchange, qty: 0, trades: [] });
-    j.qty += (t.side === 'SHORT' ? -1 : 1) * t.qty;
+    const left = t.qty - (t.exits || []).reduce((a, e) => a + (e.qty || 0), 0); // after partial exits
+    j.qty += (t.side === 'SHORT' ? -1 : 1) * left;
     j.trades.push(t);
   }
 

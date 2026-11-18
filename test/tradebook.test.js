@@ -23,9 +23,19 @@ test('scale-in + full exit = one trade with weighted prices', () => {
   assert.equal(trips[0].status, 'CLOSED');
 });
 
-test('partial exit at end of file splits closed part and open remainder', () => {
+test('partial exit at end of file = one open trade with a partial exit', () => {
   const { trips } = buildTrips(parseTradebook(csv(row('TCS', '2026-03-02', 'buy', 10, 3000, 1), row('TCS', '2026-03-09', 'sell', 4, 3100, 2))));
-  assert.deepEqual(trips.map((t) => [t.status, t.qty]), [['CLOSED', 4], ['OPEN', 6]]);
+  assert.equal(trips.length, 1);
+  assert.equal(trips[0].status, 'OPEN'); assert.equal(trips[0].qty, 10);
+  assert.deepEqual(trips[0].exits.map((e) => [e.qty, e.price]), [[4, 3100]]);
+});
+
+test('exit orders are kept separate; entry orders counted (for per-order brokerage)', () => {
+  const { trips } = buildTrips(parseTradebook(csv(
+    row('ITC', '2026-03-02', 'buy', 50, 400, 1), row('ITC', '2026-03-03', 'buy', 50, 410, 2),
+    row('ITC', '2026-03-10', 'sell', 60, 450, 3), row('ITC', '2026-03-12', 'sell', 40, 460, 4))));
+  assert.equal(trips[0].entryOrders, 2);
+  assert.deepEqual(trips[0].exits.map((e) => e.qty), [60, 40]);
 });
 
 test('intraday equity short vs sale of shares bought earlier', () => {

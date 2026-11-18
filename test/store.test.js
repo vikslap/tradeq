@@ -87,3 +87,21 @@ test('groups: link, relink moves a leg, unlink prunes groups under 2 legs', () =
   assert.ok(!store.getState().groups.some((g) => g.id === g2.id));
   assert.throws(() => store.createGroup({ tradeIds: [a.id] }), /two trades/);
 });
+
+test('partial exits: book part, then close the rest; reopen clears exits', () => {
+  const t = store.createTrade({ ...t0, qty: 100 });
+  let u = store.updateTrade(t.id, { addExit: { qty: 40, price: 440, time: '2026-11-04T05:00:00.000Z' } });
+  assert.equal(u.status, 'OPEN'); assert.equal(u.exits.length, 1);
+  assert.throws(() => store.updateTrade(t.id, { addExit: { qty: 80, price: 450, time: '2026-11-05T05:00:00.000Z' } }), /more than/);
+  u = store.updateTrade(t.id, { addExit: { price: 460, time: '2026-11-05T05:00:00.000Z' } }); // rest (60)
+  assert.equal(u.status, 'CLOSED'); assert.equal(u.exitPrice, 452); assert.equal(u.exitTime, '2026-11-05T05:00:00.000Z');
+  u = store.updateTrade(t.id, { status: 'OPEN' });
+  assert.equal(u.exits.length, 0); assert.equal(u.exitPrice, null);
+});
+
+test('legacy close (status + exitPrice) still works and edits a single exit', () => {
+  const t = store.createTrade(t0);
+  store.updateTrade(t.id, { status: 'CLOSED', exitPrice: 410, exitTime: '2026-11-03T05:00:00.000Z' });
+  const u = store.updateTrade(t.id, { status: 'CLOSED', exitPrice: 412, exitTime: '2026-11-03T05:00:00.000Z' });
+  assert.equal(u.exits.length, 1); assert.equal(u.exitPrice, 412);
+});

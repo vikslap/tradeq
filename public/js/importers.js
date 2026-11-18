@@ -84,12 +84,18 @@ export async function applyImport() {
   const reps = picked('repair').map((i) => P.repairs[i]);
   const repTrips = reps.flatMap((r) => r.trips.map((t, j) => ({ ...t, exitPrice: t.expired ? (rexits[`${P.repairs.indexOf(r)}:${j}`] === '' ? null : Number(rexits[`${P.repairs.indexOf(r)}:${j}`])) : t.exitPrice })));
   if (repTrips.some((t) => t.expired && (t.exitPrice == null || Number.isNaN(t.exitPrice)))) { $('#tb-err').textContent = 'Enter the settlement price for expired contracts being re-paired (0 if worthless).'; return; }
-  const toBody = (r, horizon) => ({ symbol: r.symbol, exchange: r.exchange, segment: r.segment, side: r.side, qty: r.qty, entryPrice: r.entryPrice, entryTime: r.entryTime, status: r.status, exitPrice: r.exitPrice, exitTime: r.exitTime, horizon: horizon || r.horizon, fillIds: r.fillIds });
+  // Exits for the server: the trip's exit orders, plus the expiry/settlement for expired contracts.
+  const exitsFor = (r, settle) => {
+    const ex = [...(r.exits || [])];
+    if (r.expired) { const left = r.qty - ex.reduce((a, e) => a + e.qty, 0); if (left > 0) ex.push({ qty: left, price: settle, time: r.exitTime, source: 'manual' }); }
+    return ex;
+  };
+  const toBody = (r, horizon, settle = r.exitPrice) => ({ symbol: r.symbol, exchange: r.exchange, segment: r.segment, side: r.side, qty: r.qty, entryPrice: r.entryPrice, entryTime: r.entryTime, horizon: horizon || r.horizon, fillIds: r.fillIds, entryOrders: r.entryOrders, exits: exitsFor(r, settle) });
   const payload = {
     remove: reps.flatMap((r) => r.replaces.map((t) => t.id)),
     updates: picked('fix').map((i) => ({ id: P.dateFixes[i].trade.id, entryTime: P.dateFixes[i].entryTime, entryPrice: P.dateFixes[i].entryPrice, fillIds: P.dateFixes[i].fillIds })),
     closes: picked('close').map((i) => ({ id: P.closes[i].trade.id, exitPrice: P.closes[i].exitPrice, exitTime: P.closes[i].exitTime, fillIds: P.closes[i].fillIds })),
-    create: [...repTrips.map((r) => toBody(r)), ...picked('new').map((i) => { const r = P.newTrades[i]; return { symbol: r.symbol, exchange: r.exchange, segment: r.segment, side: r.side, qty: r.qty, entryPrice: r.entryPrice, entryTime: r.entryTime, status: r.status, exitPrice: r.expired ? Number(exits[i]) : r.exitPrice, exitTime: r.exitTime, horizon: types[i] || r.horizon, fillIds: r.fillIds }; })],
+    create: [...repTrips.map((r) => toBody(r, null, r.exitPrice)), ...picked('new').map((i) => { const r = P.newTrades[i]; return toBody(r, types[i], r.expired ? Number(exits[i]) : r.exitPrice); })],
   };
   const btn = $('[data-action="tradebook-apply"]'); if (btn) btn.disabled = true;
   try {

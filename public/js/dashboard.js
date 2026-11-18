@@ -136,7 +136,7 @@ export function openPositionsInner() {
     return `<tr class="click" data-action="open-drawer" data-id="${t.id}">
       <td><span class="sym">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span> ${linkPill(t)}</td>
       <td><span class="side ${t.side}">${t.side}</span></td>
-      <td class="r num">${nf0.format(t.qty)}</td>
+      <td class="r num">${t.status === 'OPEN' && m.exQty ? `${nf0.format(m.openQty)}<span class="faint">/${nf0.format(t.qty)}</span>` : nf0.format(t.qty)}</td>
       <td class="r num">${price(t.entryPrice)}</td>
       <td class="r num">${q ? `<span class="ltp">${flash ? '<span class="blink"></span>' : ''}${price(q.last)}</span><div class="${cls(q.changePct)}" style="font-size:11px">${q.changePct == null ? '' : (q.changePct > 0 ? '+' : '') + (q.changePct * 100).toFixed(2) + '%'}</div>` : '<span class="faint">—</span>'}</td>
       <td class="r num">${t.stopLoss == null ? '<span class="pill red">none</span>' : price(t.stopLoss)}</td>

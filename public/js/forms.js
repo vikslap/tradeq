@@ -1,6 +1,7 @@
+import { tradeCharges, exitsOf, CHARGE_LABELS } from '../charges.js';
 import { metrics, entryChecks, exitChecks, dayKey, MISTAKE_TAGS, HORIZONS, isLT } from '../game.js';
 import { $, esc, nf0, num, sum, money, price, pct, rfmt, cls, fmtTime, hold, toLocalInput, fromLocalInput, xpPill, EXCHANGES, SEGMENTS, EMO_IN, EMO_OUT, LT_EXIT_REASONS, EXIT_REASONS, guessSegment, stars, radios, paint, setRadio } from './util.js';
-import { S, api, reload } from './state.js';
+import { S, api, reload, ltpFor } from './state.js';
 import { openModal, closeModal } from './ui.js';
 import { setupOptions } from './journal.js';
 import { pollQuotes } from './live.js';
@@ -230,17 +231,22 @@ export async function fillLivePrice(form, field) {
 // ---------- Close trade ----------
 export function openCloseForm(t, prefill = {}) {
   const live = S.kite.connected;
+  const edit = Boolean(prefill.edit); // editing the exit of a closed single-exit trade
+  const prior = edit ? [] : exitsOf(t);
+  const remaining = t.qty - prior.reduce((a, e) => a + e.qty, 0);
+  const startQty = edit ? t.qty : Math.min(remaining, prefill.qty ?? remaining);
   const form = openModal(`
   <form id="close-form" class="modal" autocomplete="off">
-    <div class="modal-h"><h2>Close ${esc(t.symbol)} <span class="side ${t.side}">${t.side}</span> <span class="muted" style="font-weight:500;font-size:13px">· ${nf0.format(t.qty)} @ ${price(t.entryPrice)}</span></h2><button type="button" class="btn ghost sm" data-action="close-modal">✕</button></div>
+    <div class="modal-h"><h2><span id="cf-title">Close</span> ${esc(t.symbol)} <span class="side ${t.side}">${t.side}</span> <span class="muted" style="font-weight:500;font-size:13px">· ${nf0.format(t.qty)} @ ${price(t.entryPrice)}${prior.length ? ` · ${nf0.format(remaining)} still open` : ''}</span></h2><button type="button" class="btn ghost sm" data-action="close-modal">✕</button></div>
     <div class="modal-b form-grid">
       <div class="stack">
-        <div class="grid-3">
+        <div class="grid-4">
+          <div class="field"><label>Quantity</label><input class="input num" name="exitQty" type="number" step="any" min="0" max="${remaining}" value="${startQty}" ${edit ? 'readonly' : ''}><div class="hint">${edit ? '' : `of ${nf0.format(remaining)} open · less = partial exit`}</div></div>
           <div class="field"><label>Exit price</label><div class="input-row"><input class="input num" name="exitPrice" type="number" step="any" min="0" value="${prefill.exitPrice ?? ''}" required>
             <button type="button" class="btn live sm" data-action="live-price" data-field="exitPrice" ${live ? '' : 'disabled title="Connect Kite for live prices"'}>⚡ Live</button></div>
             <div class="live-tag" id="tag-exitPrice">${prefill.exitSource === 'kite-fill' ? '⚡ From Kite fill' : ''}</div></div>
           <div class="field"><label>Exit time</label><input class="input" name="exitTime" type="datetime-local" value="${toLocalInput(prefill.exitTime)}"></div>
-          <div class="field"><label>Charges (₹)</label><input class="input num" name="charges" type="number" step="any" min="0" value="${t.charges ?? ''}" placeholder="0"></div>
+          <div class="field"><label>Charges (₹)</label><input class="input num" name="charges" type="number" step="any" min="0" value="${t.charges ?? ''}" placeholder="auto"><div class="hint">blank = Zerodha's schedule</div></div>
         </div>
         <div class="field ${isLT(t) ? 'hidden' : ''}"><label>Best price reached while open <span class="faint" style="font-weight:500">${t.mfePrice != null ? '(tracked from live prices)' : '(optional — catches winners that turned into losers)'}</span></label><input class="input num" name="mfePrice" type="number" step="any" min="0" value="${t.mfePrice ?? ''}" style="max-width:220px"></div>
         <div class="field"><label>${isLT(t) ? 'Why are you selling?' : 'Why did you exit?'}</label><div class="chips">${radios('exitReason', (isLT(t) ? LT_EXIT_REASONS : EXIT_REASONS).map((r) => [r, r]), t.exitReason)}</div></div>
@@ -255,31 +261,44 @@ export function openCloseForm(t, prefill = {}) {
       </div>
       <aside class="side-panel" id="close-preview"></aside>
     </div>
-    <div class="modal-f"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn green" type="submit">Close trade</button></div>
+    <div class="modal-f"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn green" type="submit" id="cf-submit">Close trade</button></div>
   </form>`);
   form.dataset.symbol = t.symbol; form.dataset.exchange = t.exchange;
   form.dataset.exitSource = prefill.exitSource || 'manual';
+  const exitQty = () => Math.min(remaining, num(form.exitQty.value) ?? remaining);
+  const isPartial = () => !edit && exitQty() < remaining - 1e-9;
   const draft = () => {
     const fd = new FormData(form); const fp = fd.get('followedPlan');
-    return { ...t, status: 'CLOSED', exitPrice: num(fd.get('exitPrice')), exitTime: fromLocalInput(fd.get('exitTime')), charges: num(fd.get('charges')),
+    const e = { qty: exitQty(), price: num(fd.get('exitPrice')), time: fromLocalInput(fd.get('exitTime')) };
+    const exits = e.price != null && e.qty > 0 ? [...prior, e] : prior;
+    const partial = isPartial();
+    return { ...t, exits, status: partial ? 'OPEN' : 'CLOSED', exitPrice: partial ? null : e.price, exitTime: partial ? null : e.time, charges: num(fd.get('charges')),
       exitReason: fd.get('exitReason') || '', followedPlan: fp === 'yes' ? true : fp === 'no' ? false : null, emotionExit: fd.get('emotionExit') || '',
       lessons: fd.get('lessons') || '', rating: num(fd.get('rating')), exitSource: form.dataset.exitSource,
       mistakes: fd.getAll('mistakes'), mfePrice: num(fd.get('mfePrice')) };
   };
   const preview = () => {
-    const d = draft(); const m = metrics(d); const checks = d.exitPrice ? exitChecks(d, m) : [];
+    const d = draft(); const partial = isPartial(); const m = metrics(d, partial ? ltpFor(t) : null);
+    const checks = !partial && d.exitPrice != null ? exitChecks(d, m) : [];
     const xp = sum(checks.map((c) => c.xp));
     const entryXp = sum((S.game.perTrade[t.id]?.entry || []).map((c) => c.xp));
+    $('#cf-title', form).textContent = partial ? 'Partly exit' : 'Close';
+    $('#cf-submit', form).textContent = partial ? `Book partial exit (${nf0.format(exitQty())})` : 'Close trade';
+    const ch = tradeCharges({ ...d, exits: d.exits });
     paint($('#close-preview', form), `
-      <h4>Result</h4>
-      <div class="stat-line"><span class="muted">Net P&L</span><b class="${cls(m.net)}">${m.net == null ? '—' : money(m.net, { sign: true })}</b></div>
+      <h4>${partial ? 'After this partial exit' : 'Result'}</h4>
+      <div class="stat-line"><span class="muted">${partial ? 'Realised so far' : 'Net P&L'}</span><b class="${cls(partial ? m.realised : m.net)}">${(partial ? m.realised : m.net) == null ? '—' : money(partial ? m.realised : m.net, { sign: true })}</b></div>
+      ${partial ? `<div class="stat-line"><span class="muted">Still open</span><b>${nf0.format(remaining - exitQty())}</b></div>` : ''}
+      <div class="stat-line"><span class="muted">Charges ${m.chargesAuto ? '(auto)' : '(manual)'}</span><b>${money(m.charges)}</b></div>
+      ${m.chargesAuto && ch.total ? `<details class="charges"><summary class="faint">Breakdown</summary>${Object.entries(CHARGE_LABELS).filter(([k]) => ch[k]).map(([k, l]) => `<div class="stat-line"><span class="muted">${l}</span><b>${money(ch[k])}</b></div>`).join('')}</details>` : ''}
       <div class="stat-line"><span class="muted">R multiple</span><b class="${cls(m.r)}">${rfmt(m.r)}</b></div>
       <div class="stat-line"><span class="muted">Return on position</span><b class="${cls(m.net)}">${m.net != null && m.value ? pct(m.net / m.value, 2) : '—'}</b></div>
       <div class="stat-line"><span class="muted">Held</span><b>${d.exitTime ? hold(m.holdDays) : '—'}</b></div>
       ${t.stopWidenCount ? `<div class="warn" style="margin-top:6px">Stop was widened ${t.stopWidenCount}× on this trade.</div>` : ''}
-      <h4 style="margin-top:16px">XP for this exit</h4>
+      ${partial ? '<div class="note" style="margin-top:12px">Partial exit — exit XP is scored when the rest is closed.</div>' : ''}
+      <h4 style="margin-top:16px;${partial ? 'display:none' : ''}">XP for this exit</h4>
       ${d.exitPrice && checks.filter((c) => c.xp < 0).length >= 2 ? `<div class="warn" style="margin:6px 0">${checks.filter((c) => c.xp < 0).length} mistakes on this exit — stack penalty applies.</div>` : ''}
-      ${d.exitPrice ? `<div class="checklist">${checks.map((c) => `<div class="check ${c.xp > 0 ? 'ok' : c.xp < 0 ? 'bad' : c.ok ? 'ok' : ''}"><span class="ic">${c.xp < 0 ? '✕' : c.ok ? '✓' : '○'}</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}</div>
+      ${partial ? '' : d.exitPrice != null ? `<div class="checklist">${checks.map((c) => `<div class="check ${c.xp > 0 ? 'ok' : c.xp < 0 ? 'bad' : c.ok ? 'ok' : ''}"><span class="ic">${c.xp < 0 ? '✕' : c.ok ? '✓' : '○'}</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}</div>
       <div class="xp-total ${xp < 0 ? 'neg' : ''}"><span>Exit XP <span class="faint" style="font-weight:500">(entry earned ${entryXp > 0 ? '+' : ''}${entryXp})</span></span><b>${xp > 0 ? '+' : ''}${xp} XP</b></div>` : '<div class="empty-sm">Enter an exit price.</div>'}
       <p class="faint" style="font-size:11.5px;margin-bottom:0">Profit itself earns nothing — honest journaling and respecting your stop do.</p>`);
   };
@@ -290,7 +309,13 @@ export function openCloseForm(t, prefill = {}) {
     const d = draft();
     const btn = form.querySelector('[type=submit]'); btn.disabled = true;
     try {
-      await api(`/api/trades/${t.id}`, { method: 'PUT', body: { status: 'CLOSED', exitPrice: d.exitPrice, exitTime: d.exitTime, charges: d.charges, exitReason: d.exitReason, followedPlan: d.followedPlan, emotionExit: d.emotionExit, lessons: d.lessons, rating: d.rating, exitSource: d.exitSource, mistakes: d.mistakes, ...(d.mfePrice != null ? { mfePrice: d.mfePrice } : {}) } });
+      const fd = new FormData(form);
+      const e = { qty: exitQty(), price: num(fd.get('exitPrice')), time: fromLocalInput(fd.get('exitTime')), source: form.dataset.exitSource };
+      if (e.price == null) throw new Error('Enter an exit price');
+      const notes = { charges: d.charges, exitReason: d.exitReason, followedPlan: d.followedPlan, emotionExit: d.emotionExit, lessons: d.lessons, rating: d.rating, mistakes: d.mistakes, ...(d.mfePrice != null ? { mfePrice: d.mfePrice } : {}) };
+      const body = edit ? { status: 'CLOSED', exitPrice: e.price, exitTime: e.time, exitSource: e.source, ...notes }
+        : isPartial() ? { addExit: e, charges: d.charges } : { addExit: { ...e, qty: remaining }, ...notes };
+      await api(`/api/trades/${t.id}`, { method: 'PUT', body });
       closeModal();
       await reload({ celebrate: true });
     } catch (err) { $('#form-err', form).textContent = err.message; btn.disabled = false; }

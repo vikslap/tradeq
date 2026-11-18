@@ -1,3 +1,4 @@
+import { tradeCharges, exitsOf, CHARGE_LABELS } from '../charges.js';
 import { metrics, isLT, reviewStatus, REVIEW_DAYS } from '../game.js';
 import { mountTradeChart, INTERVAL_LABEL } from '../tradechart.js';
 import { drawToolbar } from '../drawing.js';
@@ -91,10 +92,10 @@ export function renderDrawer() {
     </div>
     <div class="sec" style="padding-top:12px;padding-bottom:12px"><div id="trade-chart"></div></div>
     <div class="sec"><div class="row" style="justify-content:space-between;align-items:flex-end">
-      <div><div class="label">${t.status === 'OPEN' ? 'Unrealised P&L' : 'Net P&L'}</div><div class="mono ${cls(m.net)}" style="font-size:28px;font-weight:700;margin-top:4px">${m.net == null ? '—' : money(m.net, { sign: true })}</div></div>
+      <div><div class="label">${t.status === 'OPEN' ? (m.exQty ? 'Total P&L (booked + open)' : 'Unrealised P&L') : 'Net P&L'}</div><div class="mono ${cls(m.net)}" style="font-size:28px;font-weight:700;margin-top:4px">${m.net == null ? '—' : money(m.net, { sign: true })}</div>${t.status === 'OPEN' && m.exQty ? `<div class="faint" style="font-size:12px">Booked ${money(m.realised, { sign: true })} · open ${m.unrealised == null ? '—' : money(m.unrealised, { sign: true })}</div>` : ''}</div>
       <div style="text-align:right"><div class="mono ${cls(m.r)}" style="font-size:18px;font-weight:650">${rfmt(m.r)}</div>${xpPill(x)}</div></div></div>
     <div class="sec kv">
-      ${item('Quantity', nf0.format(t.qty) + (t.lotSize > 1 ? ` <span class="faint">(${(t.qty / t.lotSize).toFixed(t.qty % t.lotSize ? 2 : 0)} lots)</span>` : ''))}
+      ${item('Quantity', nf0.format(t.qty) + (t.lotSize > 1 ? ` <span class="faint">(${(t.qty / t.lotSize).toFixed(t.qty % t.lotSize ? 2 : 0)} lots)</span>` : '') + (t.status === 'OPEN' && m.exQty ? ` <span class="pill gold">${nf0.format(m.openQty)} open</span>` : ''))}
       ${item('Entry', price(t.entryPrice) + (t.entrySource !== 'manual' ? ' <span class="live-tag">⚡</span>' : ''))}
       ${item(t.status === 'OPEN' ? 'LTP' : 'Exit', t.status === 'OPEN' ? price(ltp) : price(t.exitPrice) + (t.exitSource && t.exitSource !== 'manual' ? ' <span class="live-tag">⚡</span>' : ''))}
       ${isLT(t) ? `${item('Invested', money(t.entryPrice * t.qty, { dp: 0 }))}${item('Return', (() => { const v = t.status === 'OPEN' ? ltp : t.exitPrice; return v ? `<span class="${cls(v - t.entryPrice)}">${pct(v / t.entryPrice - 1)}</span>` : '—'; })())}` : `
@@ -102,7 +103,7 @@ export function renderDrawer() {
       ${item('Target', price(t.target))}
       ${item('Planned R:R', m.plannedRR != null ? '1 : ' + m.plannedRR.toFixed(2) : '—')}
       ${item('Initial risk', m.riskAmt != null ? money(m.riskAmt, { dp: 0 }) : '—')}`}
-      ${item('Charges', t.charges ? money(t.charges) : '—')}
+      ${item('Charges', m.exQty ? `${money(m.charges)} <span class="faint">${m.chargesAuto ? 'auto' : 'manual'}</span>` : '—')}
       ${item('Best / worst price seen', t.mfePrice != null ? `${price(t.mfePrice)} / ${price(t.maePrice)}` : '—')}
       ${isLT(t) ? '' : item('Setup', esc(t.setup || '—'))}
       ${item('Segment', esc(Object.fromEntries(SEGMENTS)[t.segment] || t.segment))}
@@ -118,6 +119,15 @@ export function renderDrawer() {
     </div>`; })() : ''}
     ${t.lessons ? `<div class="sec"><div class="label">Lesson</div><div class="prose" style="margin-top:6px">${esc(t.lessons)}</div></div>` : ''}
     ${t.screenshotUrl ? `<div class="sec"><a class="link" href="${esc(t.screenshotUrl)}" target="_blank" rel="noopener">📈 Open chart ↗</a></div>` : ''}
+    ${(() => {
+      const ex = exitsOf(t); if (!ex.length) return '';
+      const multi = ex.length > 1 || t.status === 'OPEN';
+      const ch = m.chargesAuto ? tradeCharges(t) : null;
+      return `<div class="sec"><div class="label">Exits${multi ? ` · ${ex.length}` : ''}</div>
+        ${ex.map((e) => { const g = (e.price - t.entryPrice) * m.dir * e.qty; return `<div class="stat-line"><span class="muted">${fmtDT(e.time)} · ${nf0.format(e.qty)} @ ${price(e.price)}</span><span class="row" style="gap:6px"><b class="${cls(g)}">${money(g, { sign: true, dp: 0 })}</b>${multi && e.id ? `<button class="btn ghost sm" data-action="delete-exit" data-id="${t.id}" data-eid="${e.id}" title="Remove this exit">✕</button>` : ''}</span></div>`; }).join('')}
+        ${ch ? `<details class="charges" style="margin-top:6px"><summary class="faint">Charges ${money(ch.total)} — breakdown</summary>${Object.entries(CHARGE_LABELS).filter(([k]) => ch[k]).map(([k, l]) => `<div class="stat-line"><span class="muted">${l}</span><b>${money(ch[k])}</b></div>`).join('')}</details>` : ''}
+      </div>`;
+    })()}
     ${t.stopHistory?.length ? `<div class="sec"><div class="label">Stop moves</div>${t.stopHistory.map((h) => `<div class="stat-line"><span class="muted">${fmtDT(h.at)}</span><b>${price(h.from)} → ${price(h.to)}</b></div>`).join('')}</div>` : ''}
     ${(() => {
       const g = groupOf(t); if (!g) return '';
@@ -136,7 +146,7 @@ export function renderDrawer() {
     <div class="sec row wrap">
       ${t.status === 'OPEN' ? `<button class="btn green" data-action="close-trade" data-id="${t.id}">Close trade</button>` : `<button class="btn" data-action="reopen-trade" data-id="${t.id}">Reopen</button>`}
       <button class="btn" data-action="edit-trade" data-id="${t.id}">Edit</button>
-      ${t.status === 'CLOSED' ? `<button class="btn" data-action="edit-exit" data-id="${t.id}">Edit exit</button>` : ''}
+      ${t.status === 'CLOSED' && exitsOf(t).length === 1 ? `<button class="btn" data-action="edit-exit" data-id="${t.id}">Edit exit</button>` : ''}
       <span style="flex:1"></span><button class="btn danger" data-action="delete-trade" data-id="${t.id}">Delete</button>
     </div>
   </aside>`;

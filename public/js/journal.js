@@ -67,7 +67,7 @@ export function journalRows() {
       <td><span class="sym">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span> ${linkPill(t)}</td>
       <td>${horizonPill(t)}</td>
       <td><span class="side ${t.side}">${t.side}</span></td>
-      <td class="r num">${nf0.format(t.qty)}</td>
+      <td class="r num">${t.status === 'OPEN' && m.exQty ? `${nf0.format(m.openQty)}<span class="faint">/${nf0.format(t.qty)}</span>` : nf0.format(t.qty)}</td>
       <td class="r num">${price(t.entryPrice)}</td>
       <td class="r num">${t.status === 'CLOSED' ? price(t.exitPrice) : ltp != null ? `<span class="faint">${price(ltp)}</span>` : '—'}</td>
       <td class="r num ${cls(m.net)}">${m.net == null ? '—' : money(m.net, { sign: true })}${t.status === 'OPEN' && m.net != null ? ' <span class="faint">·u</span>' : ''}</td>

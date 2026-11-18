@@ -79,7 +79,12 @@ export const actions = {
   'chart-expand': (el) => openBigChart(findTrade(el.dataset.id)),
   'close-trade': async (el, e) => { e.stopPropagation(); const id = el.dataset.id; await reload(); openCloseForm(findTrade(id)); },
   'edit-trade': (el) => openTradeForm(findTrade(el.dataset.id)),
-  'edit-exit': (el) => { const t = findTrade(el.dataset.id); openCloseForm(t, { exitPrice: t.exitPrice, exitTime: t.exitTime, exitSource: t.exitSource }); },
+  'delete-exit': async (el) => {
+    const t = findTrade(el.dataset.id);
+    if (!(await confirmBox('Remove this exit?', 'The quantity goes back to open. Everything else on the trade stays.', 'Remove'))) return;
+    try { await api(`/api/trades/${t.id}`, { method: 'PUT', body: { exits: (t.exits || []).filter((e) => e.id !== el.dataset.eid) } }); await reload({ celebrate: true }); } catch (e) { toast(esc(e.message), 'err'); }
+  },
+  'edit-exit': (el) => { const t = findTrade(el.dataset.id); openCloseForm(t, { exitPrice: t.exitPrice, exitTime: t.exitTime, exitSource: t.exitSource, edit: true }); },
   'reopen-trade': async (el) => {
     if (!(await confirmBox('Reopen trade?', 'The exit will be cleared from the stats until you close it again. Exit notes are kept.', 'Reopen'))) return;
     try { await api(`/api/trades/${el.dataset.id}`, { method: 'PUT', body: { status: 'OPEN' } }); await reload({ celebrate: true }); } catch (e) { toast(esc(e.message), 'err'); }
@@ -140,7 +145,7 @@ export const actions = {
     const f = S._fills[+el.dataset.i]; closeModal();
     openTradeForm(null, { symbol: f.symbol, exchange: f.exchange, segment: guessSegment(f.exchange, f.symbol), side: f.side === 'BUY' ? 'LONG' : 'SHORT', qty: f.qty, entryPrice: f.price, entryTime: f.time, entrySource: 'kite-fill' });
   },
-  'fill-exit': (el) => { const f = S._fills[+el.dataset.i]; closeModal(); openCloseForm(findTrade(el.dataset.id), { exitPrice: f.price, exitTime: f.time, exitSource: 'kite-fill' }); },
+  'fill-exit': (el) => { const f = S._fills[+el.dataset.i]; closeModal(); openCloseForm(findTrade(el.dataset.id), { exitPrice: f.price, exitTime: f.time, exitSource: 'kite-fill', qty: f.qty }); },
 };
 
 

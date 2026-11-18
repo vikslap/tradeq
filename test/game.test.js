@@ -7,7 +7,7 @@ const settings = { maxRiskPerTrade: 2000, maxTradesPerDay: 3, revengeWindowMins:
 const base = (o = {}) => ({
   id: 'a', symbol: 'ITC', exchange: 'NSE', segment: 'EQ', side: 'LONG', qty: 100, entryPrice: 400,
   stopLoss: 380, initialStop: 380, stopSetAtEntry: true, target: 450, setup: 'Breakout',
-  thesis: 'Range breakout on strong volume, sector flows positive', entryTime: '2026-11-02T05:00:00.000Z', status: 'OPEN', ...o,
+  thesis: 'Range breakout on strong volume, sector flows positive', entryTime: '2026-11-02T05:00:00.000Z', status: 'OPEN', charges: 0, ...o,
 });
 
 test('metrics: R and risk for a long winner', () => {

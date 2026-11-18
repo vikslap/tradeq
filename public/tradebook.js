@@ -112,12 +112,15 @@ export function buildTrips(fills) {
       const base = { key, symbol: c.entry[0].symbol, exchange: c.entry[0].exchange, segment: segmentOf(c.entry[0].exchange, c.entry[0].symbol), side: c.dir > 0 ? 'LONG' : 'SHORT', entryPrice: round(wavg(c.entry)), entryTime: c.entry[0].time };
       const expiry = c.entry.find((f) => f.expiry)?.expiry || null;
       base.expiry = expiry;
-      if (status === 'CLOSED') return [{ ...base, status, qty: entryQty, exitPrice: round(wavg(c.exit)), exitTime: c.exit.at(-1).time, fillIds: [...c.entry, ...c.exit].map((f) => f.id) }];
-      // Still open at the end of the file: split off any part already exited.
-      const out = [];
-      if (exitQty > 0) out.push({ ...base, status: 'CLOSED', qty: exitQty, exitPrice: round(wavg(c.exit)), exitTime: c.exit.at(-1).time, fillIds: c.exit.map((f) => f.id), partial: true });
-      out.push({ ...base, status: 'OPEN', qty: entryQty - exitQty, fillIds: c.entry.map((f) => f.id) });
-      return out;
+      // Brokerage is per executed order, so keep exit orders separate and count entry orders.
+      base.entryOrders = new Set(c.entry.map((f) => f.orderId || f.time)).size || 1;
+      const byOrder = {};
+      for (const f of c.exit) (byOrder[f.orderId || f.time] ||= []).push(f);
+      base.exits = Object.values(byOrder).map((fs) => ({ qty: qsum(fs), price: round(wavg(fs)), time: fs.at(-1).time, source: 'kite-fill' })).sort((a, b) => a.time.localeCompare(b.time));
+      const fillIds = [...c.entry, ...c.exit].map((f) => f.id);
+      if (status === 'CLOSED') return [{ ...base, status, qty: entryQty, exitPrice: round(wavg(c.exit)), exitTime: c.exit.at(-1).time, fillIds }];
+      // Still open at the end of the file (possibly partly exited): one open trade.
+      return [{ ...base, status: 'OPEN', qty: entryQty, partial: exitQty > 0, fillIds }];
     };
     while (queue.length) {
       const f = queue.shift(); const sgn = f.side === 'BUY' ? 1 : -1;

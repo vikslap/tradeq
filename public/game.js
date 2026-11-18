@@ -1,3 +1,4 @@
+import { exitsOf, tradeCharges } from './charges.js';
 // TradeQuest gamification engine.
 // Everything is derived from the journal on every load, so editing or deleting a
 // trade can never leave XP out of sync. XP rewards PROCESS, not profit.
@@ -37,14 +38,24 @@ export function metrics(t, ltp = null) {
   const rewardPerUnit = t.target != null && t.entryPrice != null ? Math.abs(t.target - t.entryPrice) : null;
   const plannedRR = riskPerUnit > 0 && rewardPerUnit != null ? rewardPerUnit / riskPerUnit : null;
   const closed = t.status === 'CLOSED';
+  // Exits (partial or full). Realised P&L is net of charges; a blank charges field means
+  // "work them out from Zerodha's schedule".
+  const exits = exitsOf(t);
+  const exQty = exits.reduce((a, e) => a + (e.qty || 0), 0);
+  const openQty = closed ? 0 : Math.max(0, qty - exQty);
+  const realisedGross = exits.reduce((a, e) => a + (e.price - t.entryPrice) * dir * e.qty, 0);
+  const chargesAuto = t.charges == null;
+  const charges = exQty ? (chargesAuto ? tradeCharges(t).total : t.charges) : 0;
+  const realised = exQty ? realisedGross - charges : 0;
+  const unrealised = openQty ? (ltp != null && t.entryPrice != null ? (ltp - t.entryPrice) * dir * openQty : null) : 0;
   const px = closed ? t.exitPrice : ltp;
-  const gross = px != null && t.entryPrice != null ? (px - t.entryPrice) * dir * qty : null;
-  const net = gross != null ? gross - (closed ? t.charges || 0 : 0) : null;
+  const gross = closed ? realisedGross : unrealised == null ? (exQty ? realisedGross : null) : realisedGross + unrealised;
+  const net = closed ? realised : unrealised == null ? (exQty ? realised : null) : realised + unrealised;
   const r = net != null && riskAmt > 0 ? net / riskAmt : null;
   const end = closed && t.exitTime ? new Date(t.exitTime) : new Date();
   const holdDays = t.entryTime ? Math.max(0, (end - new Date(t.entryTime)) / 86400000) : 0;
-  const openRisk = !closed && t.stopLoss != null ? (t.entryPrice - t.stopLoss) * dir * qty : null;
-  return { dir, riskPerUnit, riskAmt, plannedRR, gross, net, r, value: (t.entryPrice || 0) * qty, holdDays, px, openRisk, closed };
+  const openRisk = !closed && t.stopLoss != null ? (t.entryPrice - t.stopLoss) * dir * openQty : null;
+  return { dir, riskPerUnit, riskAmt, plannedRR, gross, net, r, value: (t.entryPrice || 0) * qty, holdDays, px, openRisk, closed, exits, exQty, openQty, realised, unrealised, charges, chargesAuto };
 }
 
 // ---------------------------------------------------------------------------

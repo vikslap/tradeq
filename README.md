@@ -190,3 +190,10 @@ test/                node:test unit tests → npm test
 - Zerodha charges calculator
 - Chart screenshots stored locally
 - Corporate announcements panel (Khabri Laal feed)
+
+## Charges and partial exits
+
+- **Charges are worked out for you** from Zerodha's published schedule (rates as of Nov 2026: brokerage, STT/CTT, exchange transaction charges, SEBI fee, IPFT, stamp duty, GST and the DP charge on delivery sells). Equity sold the same day it was bought is charged at intraday rates. Leave the Charges box blank for auto, or type a figure from your contract note to override it.
+- **Partial exits**: in the close form, enter fewer shares than you hold to book a partial exit. The trade stays open with the remainder; the side panel lists each exit (removable) and the charges breakdown. Exit XP is scored once the whole position is closed.
+- Tradebook imports keep each exit order separately, and count entry orders, so per-order brokerage matches the contract note. A position partly sold by the end of the file becomes one open trade with its exits.
+- Kite sync compares your broker holdings with the quantity still open.
