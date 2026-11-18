@@ -83,7 +83,8 @@ A separate section for paper trading on **real historical Kite candles**. Nothin
 - **Blind mode** (on by default) hides the name and dates, so you trade the chart, not what you remember. Everything is revealed at the end.
 - **🎲 New chart**: don't like the chart? Skip to a fresh surprise with the same settings. With no paper trades it's simply discarded; with trades, the session is saved to your history first.
 - **Step through** bar by bar (**→** or Space), +10 bars, or auto-play at 1× / 2× / 5×.
-- **Orders fill realistically**: market orders fill at the next bar's open. Stops and targets fill intrabar, **at the open if price gaps past them** (so gap-downs hurt, just like real life). If one bar hits both, the stop is assumed first.
+- **Order types**: **Market** fills at the next bar's open. **Limit** buys at or below your price (shorts at or above), for pullback entries. **Stop (breakout)** buys when price rises to your trigger (shorts when it falls to it). Pending orders show as dotted lines, stay open until filled or cancelled, and can be modified. They fill at your price, or at the open if price gaps through it.
+- **Orders fill realistically**: market orders fill at the next bar's open. Stops and targets fill intrabar, **at the open if price gaps past them** (so gap-downs hurt, just like real life). If one bar hits both, the stop is assumed first. On the bar a limit or stop order fills mid-bar, only the stop is checked, since the target may have been hit before you were in.
 - Size to your ₹ risk in one click, trail the stop (free) or widen it (costs XP), and exit at the next open.
 - **Practice XP** follows the journal's habits (stop before entry, risk within limit, losses held to 1R, letting winners run) and is kept separate from your real XP.
 - **Review**: when the session ends you see the full chart, including what happened after you stopped, plus every paper trade with its R and XP. You can resume unfinished sessions any time.

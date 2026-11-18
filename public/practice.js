@@ -29,7 +29,40 @@ const dirOf = (side) => (side === 'SHORT' ? -1 : 1);
  * targets fill intrabar, at the open if the bar gaps past them. If a bar touches both,
  * the stop is assumed first (conservative). Returns { position, closed }.
  */
-export function stepBar(position, bar, barIndex, { pendingExit = false } = {}) {
+/**
+ * Does a pending entry order fill on this bar, and at what price?
+ *  MARKET: at the open.
+ *  LIMIT:  long at or below `price` (short at or above) — at the open if it gaps through, else at the price.
+ *  STOP:   long when price rises to `price` (short when it falls to it) — breakout entries; gaps fill at the open.
+ */
+export function fillOrder(order, bar) {
+  const [, o, h, l] = bar; const long = order.side !== 'SHORT'; const P = order.price;
+  if (order.type === 'MARKET' || !order.type) return { price: o, atOpen: true };
+  if (order.type === 'LIMIT') {
+    if (long ? o <= P : o >= P) return { price: o, atOpen: true };
+    if (long ? l <= P : h >= P) return { price: P, atOpen: false };
+  }
+  if (order.type === 'STOP') {
+    if (long ? o >= P : o <= P) return { price: o, atOpen: true };
+    if (long ? h >= P : l <= P) return { price: P, atOpen: false };
+  }
+  return null;
+}
+
+/** Order-type rules relative to the current price; returns an error message or null. */
+export function checkOrder({ type, side, price, stop, target }, last) {
+  const long = side !== 'SHORT';
+  if (type === 'LIMIT' && !(price > 0)) return 'Enter a limit price.';
+  if (type === 'STOP' && !(price > 0)) return 'Enter a trigger price.';
+  if (type === 'LIMIT' && (long ? price >= last : price <= last)) return `A ${long ? 'buy' : 'short'} limit must be ${long ? 'below' : 'above'} the current price (${last}) — otherwise use Market.`;
+  if (type === 'STOP' && (long ? price <= last : price >= last)) return `A ${long ? 'buy' : 'short'} stop (breakout) must be ${long ? 'above' : 'below'} the current price (${last}).`;
+  const ref = type === 'MARKET' ? last : price;
+  if (stop != null && (long ? stop >= ref : stop <= ref)) return `Stop-loss must be ${long ? 'below' : 'above'} your entry (${ref}).`;
+  if (target != null && (long ? target <= ref : target >= ref)) return `Target must be ${long ? 'above' : 'below'} your entry (${ref}).`;
+  return null;
+}
+
+export function stepBar(position, bar, barIndex, { pendingExit = false, skipTarget = false } = {}) {
   if (!position) return { position: null, closed: null };
   const [ts, o, h, l] = bar;
   const d = dirOf(position.side);
@@ -42,7 +75,9 @@ export function stepBar(position, bar, barIndex, { pendingExit = false } = {}) {
     if (gapped) return close(o, 'Stop (gap)');
     if (touched) return close(stop, 'Stop');
   }
-  if (target != null) {
+  // On the bar an order filled intrabar we can't know if the target came after the
+  // fill, so only the stop is checked (conservative).
+  if (target != null && !skipTarget) {
     const gapped = d > 0 ? o >= target : o <= target;
     const touched = d > 0 ? h >= target : l <= target;
     if (gapped) return close(o, 'Target (gap)');
@@ -257,7 +292,8 @@ async function resume(id, review = false) {
   try {
     const data = await loadCandles(s);
     if (review) return openReview(s, data);
-    G = { session: s, data, cursor: s.cursor ?? s.startIndex - 1, position: s.position, trades: [...(s.trades || [])], pendingExit: false, pending: null };
+    const pend = s.pending ? { ...s.pending, type: s.pending.orderType, price: s.pending.orderPrice } : null;
+    G = { session: s, data, cursor: s.cursor ?? s.startIndex - 1, position: s.position, trades: [...(s.trades || [])], pendingExit: false, pending: pend };
     await ctx.reload();
   } catch (e) { ctx.toast(ctx.esc(e.message), 'err'); }
 }
@@ -312,6 +348,12 @@ function refreshOverlays() {
     if (p.stop != null) G.lines.push(G.series.createPriceLine({ price: p.stop, title: 'SL', color: C.red, lineStyle: LineStyle.Dashed }));
     if (p.target != null) G.lines.push(G.series.createPriceLine({ price: p.target, title: 'TGT', color: C.green, lineStyle: LineStyle.Dashed }));
   }
+  const o = G.pending;
+  if (!p && o && o.type !== 'MARKET') {
+    G.lines.push(G.series.createPriceLine({ price: o.price, title: `${o.side === 'LONG' ? 'BUY' : 'SHORT'} ${o.type === 'LIMIT' ? 'LMT' : 'STP'}`, color: C.accent, lineWidth: 2, lineStyle: LineStyle.Dotted }));
+    if (o.stop != null) G.lines.push(G.series.createPriceLine({ price: o.stop, title: 'SL', color: C.red, lineStyle: LineStyle.Dotted }));
+    if (o.target != null) G.lines.push(G.series.createPriceLine({ price: o.target, title: 'TGT', color: C.green, lineStyle: LineStyle.Dotted }));
+  }
   const iv = G.data.interval; const cs = G.data.candles;
   const marks = [];
   for (const t of [...G.trades, ...(p ? [p] : [])]) {
@@ -332,11 +374,18 @@ function next(n = 1) {
     G.cursor++;
     const c = G.data.candles[G.cursor];
     // Pending market order fills at this bar's open.
+    let skipTarget = false;
     if (G.pending) {
-      G.position = { ...G.pending, entryPrice: c[1], entryBar: G.cursor, entryTime: new Date(c[0]).toISOString() };
-      G.pending = null;
+      const f = fillOrder(G.pending, c);
+      if (f) {
+        const { type, price, ...rest } = G.pending;
+        G.position = { ...rest, entryPrice: round2(f.price), entryBar: G.cursor, entryTime: new Date(c[0]).toISOString(), orderType: type || 'MARKET' };
+        skipTarget = !f.atOpen;
+        if (type && type !== 'MARKET') { ctx.toast(`<div class="t-h">✅ ${type === 'LIMIT' ? 'Limit' : 'Breakout stop'} order filled @ ${nf2.format(f.price)}${f.atOpen ? ' (gap, at the open)' : ''}</div>`); stopAuto(); }
+        G.pending = null;
+      }
     }
-    const { position, closed } = stepBar(G.position, c, G.cursor, { pendingExit: G.pendingExit });
+    const { position, closed } = stepBar(G.position, c, G.cursor, { pendingExit: G.pendingExit, skipTarget });
     G.pendingExit = false;
     G.position = position;
     G.series.update(bar(c)); G.vol.update(volBar(c));
@@ -360,7 +409,9 @@ function save(now = false) {
   clearTimeout(saveTimer);
   if (!G) return;
   // Snapshot now: the session may end (G = null) before a delayed save runs.
-  const id = G.session.id; const body = { cursor: G.cursor, trades: [...G.trades], position: G.position };
+  const id = G.session.id;
+  const pending = G.pending && G.pending.type !== 'MARKET' ? { ...G.pending, orderType: G.pending.type, orderPrice: G.pending.price } : null;
+  const body = { cursor: G.cursor, trades: [...G.trades], position: G.position, pending };
   const go = () => ctx.api(`/api/practice/sessions/${id}`, { method: 'PUT', body }).catch(() => {});
   if (now) go(); else saveTimer = setTimeout(go, 1500);
 }
@@ -382,7 +433,7 @@ async function finishSession({ review }) {
     G.trades.push({ ...G.position, exitPrice: c[4], exitBar: G.cursor, exitTime: new Date(c[0]).toISOString(), exitReason: 'Session end' });
     G.position = null;
   }
-  const s = await ctx.api(`/api/practice/sessions/${G.session.id}`, { method: 'PUT', body: { cursor: G.cursor, trades: G.trades, position: null, status: 'done' } });
+  const s = await ctx.api(`/api/practice/sessions/${G.session.id}`, { method: 'PUT', body: { cursor: G.cursor, trades: G.trades, position: null, pending: null, status: 'done' } });
   const done = G; done.draw?.destroy(); G = null;
   if (!review) return;
   await ctx.reload();
@@ -408,20 +459,36 @@ function paint() {
     <div class="stat-line"><span class="muted">Open P&L</span><b class="${cls(unreal)}">${p ? money(unreal) : '—'}</b></div>
     <div class="stat-line"><span class="muted">Session R</span><b class="${cls(totalR)}">${rfmt(totalR)}</b></div>
     <div class="stat-line"><span class="muted">Last close</span><b>${nf2.format(c[4])}</b></div>`;
-  document.getElementById('pa-ticket').innerHTML = p ? positionHtml(p, c) : G.pending ? `<div class="note">Order queued — fills at the next bar's open.</div>` : ticketHtml(c);
+  document.getElementById('pa-ticket').innerHTML = p ? positionHtml(p, c) : G.pending ? pendingHtml(G.pending, c) : ticketHtml(c);
   document.getElementById('pa-log').innerHTML = G.trades.length ? `<table class="tbl"><tbody>${[...G.trades].reverse().map((t) => { const { pnl, r } = tradeResult(t); return `<tr><td><span class="side ${t.side}">${t.side === 'LONG' ? 'L' : 'S'}</span></td><td class="num">${nf2.format(t.entryPrice)} → ${nf2.format(t.exitPrice)}</td><td class="faint">${ctx.esc(t.exitReason)}</td><td class="r num ${cls(pnl)}">${rfmt(r)}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty-sm">No paper trades yet.</div>';
   bindTicket();
 }
 
 function ticketHtml(c) {
-  return `<header class="card-h" style="margin-bottom:10px"><h3>Plan a trade</h3><span class="sub">fills at next open</span></header>
-    <form id="pa-order" class="stack" style="gap:10px">
+  return `<header class="card-h" style="margin-bottom:10px"><h3>Plan a trade</h3><span class="sub" id="pa-osub">fills at next open</span></header>
+    <form id="pa-order" class="stack" style="gap:10px" data-otype="MARKET">
       <div class="seg"><label><input type="radio" name="side" value="LONG" checked><span class="long">▲ Buy</span></label><label><input type="radio" name="side" value="SHORT"><span class="short">▼ Short</span></label></div>
+      <div class="seg sm-seg"><label><input type="radio" name="otype" value="MARKET" checked><span>Market</span></label><label><input type="radio" name="otype" value="LIMIT"><span>Limit</span></label><label><input type="radio" name="otype" value="STOP"><span>Stop (breakout)</span></label></div>
+      <div class="field otype-px"><label id="pa-pxlabel">Limit price</label><input class="input num" name="price" type="number" step="any"></div>
       <div class="grid-2"><div class="field"><label>Stop-loss</label><input class="input num" name="stop" type="number" step="any"></div><div class="field"><label>Target</label><input class="input num" name="target" type="number" step="any"></div></div>
       <div class="field"><label>Quantity</label><div class="input-row"><input class="input num" name="qty" type="number" min="1" step="1"><button type="button" class="btn sm" data-pa="size">Size to ₹${nf0.format(G.session.risk)} risk</button></div></div>
       <div class="faint" id="pa-preview" style="font-size:12px;min-height:16px"></div>
       <div class="err" id="pa-oerr"></div>
       <button class="btn primary" type="submit">Place order</button>
+    </form>`;
+}
+
+function pendingHtml(o, c) {
+  const label = `${o.side === 'LONG' ? 'BUY' : 'SHORT'} ${o.type === 'LIMIT' ? 'LIMIT' : 'STOP'}`;
+  const dist = ((o.price - c[4]) / c[4]) * 100;
+  return `<header class="card-h" style="margin-bottom:10px"><h3>⏳ ${label} ${nf0.format(o.qty)} @ ${nf2.format(o.price)}</h3><span class="sub">${dist > 0 ? '+' : ''}${dist.toFixed(2)}% away</span></header>
+    <form id="pa-pending" class="stack" style="gap:10px">
+      <div class="field"><label>${o.type === 'LIMIT' ? 'Limit price' : 'Trigger price'}</label><input class="input num" name="price" type="number" step="any" value="${o.price}"></div>
+      <div class="grid-2"><div class="field"><label>Stop-loss</label><input class="input num" name="stop" type="number" step="any" value="${o.stop ?? ''}"></div>
+        <div class="field"><label>Target</label><input class="input num" name="target" type="number" step="any" value="${o.target ?? ''}"></div></div>
+      <div class="row"><button class="btn" type="submit">Modify order</button><button class="btn danger" type="button" data-pa="cancel-order">Cancel order</button></div>
+      <div class="faint" style="font-size:12px">Stays open until filled or cancelled. Keep stepping forward.</div>
+      <div class="err" id="pa-perr"></div>
     </form>`;
 }
 
@@ -442,20 +509,35 @@ function bindTicket() {
   if (f) {
     const prev = () => {
       const c = lastBar(); const side = f.side.value; const stop = Number(f.stop.value) || null; const tgt = Number(f.target.value) || null; const q = Number(f.qty.value) || 0;
-      const rpu = stop ? Math.abs(c[4] - stop) : null;
-      document.getElementById('pa-preview').innerHTML = [rpu && q ? `risk ≈ ₹${nf0.format(rpu * q)}` : '', rpu && tgt ? `R:R ≈ 1:${(Math.abs(tgt - c[4]) / rpu).toFixed(2)}` : '', side === 'LONG' && stop && stop >= c[4] ? '<span class="neg">stop is above price</span>' : '', side === 'SHORT' && stop && stop <= c[4] ? '<span class="neg">stop is below price</span>' : ''].filter(Boolean).join(' · ');
+      const type = f.otype.value; f.dataset.otype = type;
+      document.getElementById('pa-pxlabel').textContent = type === 'LIMIT' ? (side === 'LONG' ? 'Buy at or below' : 'Short at or above') : (side === 'LONG' ? 'Buy when price rises to' : 'Short when price falls to');
+      document.getElementById('pa-osub').textContent = type === 'MARKET' ? 'fills at next open' : 'stays open until filled';
+      const ref = type === 'MARKET' ? c[4] : Number(f.price.value) || c[4];
+      const rpu = stop ? Math.abs(ref - stop) : null;
+      document.getElementById('pa-preview').innerHTML = [rpu && q ? `risk ≈ ₹${nf0.format(rpu * q)}` : '', rpu && tgt ? `R:R ≈ 1:${(Math.abs(tgt - ref) / rpu).toFixed(2)}` : ''].filter(Boolean).join(' · ');
     };
     f.addEventListener('input', prev);
     f.addEventListener('submit', (e) => {
       e.preventDefault();
-      const c = lastBar(); const side = f.side.value; const qty = Math.floor(Number(f.qty.value));
+      const c = lastBar(); const side = f.side.value; const qty = Math.floor(Number(f.qty.value)); const type = f.otype.value;
       const stop = f.stop.value === '' ? null : Number(f.stop.value); const target = f.target.value === '' ? null : Number(f.target.value);
+      const price = type === 'MARKET' ? null : Number(f.price.value);
       const err = (m) => { document.getElementById('pa-oerr').textContent = m; };
       if (!(qty > 0)) return err('Enter a quantity (or size to risk).');
-      if (stop != null && (side === 'LONG' ? stop >= c[4] : stop <= c[4])) return err(`Stop must be ${side === 'LONG' ? 'below' : 'above'} the current price.`);
-      if (target != null && (side === 'LONG' ? target <= c[4] : target >= c[4])) return err(`Target must be ${side === 'LONG' ? 'above' : 'below'} the current price.`);
-      G.pending = { side, qty, stop, initialStop: stop, target, stopMoves: 0, widened: 0 };
-      next(); // market order: fills at the next bar's open
+      const bad = checkOrder({ type, side, price, stop, target }, c[4]); if (bad) return err(bad);
+      G.pending = { type, price, side, qty, stop, initialStop: stop, target, stopMoves: 0, widened: 0 };
+      if (type === 'MARKET') next(); // fills at the next bar's open
+      else { refreshOverlays(); paint(); save(true); }
+    });
+  }
+  const po = document.getElementById('pa-pending');
+  if (po) {
+    po.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const o = G.pending; const c = lastBar();
+      const upd = { ...o, price: Number(po.price.value), stop: po.stop.value === '' ? null : Number(po.stop.value), target: po.target.value === '' ? null : Number(po.target.value) };
+      const bad = checkOrder(upd, c[4]); if (bad) { document.getElementById('pa-perr').textContent = bad; return; }
+      upd.initialStop = upd.stop; G.pending = upd; refreshOverlays(); paint(); save(true);
     });
   }
   const m = document.getElementById('pa-manage');
@@ -490,10 +572,12 @@ export function practiceAction(name, el) {
     case 'end': return G && endSession();
     case 'skip-chart': return skipChart();
     case 'close': if (G?.position) { G.pendingExit = true; next(); } return;
+    case 'cancel-order': if (G?.pending) { G.pending = null; refreshOverlays(); paint(); save(true); } return;
     case 'size': {
       const f = document.getElementById('pa-order'); const c = lastBar(); const stop = Number(f.stop.value);
       if (!stop) { document.getElementById('pa-oerr').textContent = 'Set a stop first.'; return; }
-      f.qty.value = Math.max(1, Math.floor(G.session.risk / Math.abs(c[4] - stop))); f.dispatchEvent(new Event('input')); return;
+      const ref = f.otype.value === 'MARKET' ? c[4] : Number(f.price.value) || c[4];
+      f.qty.value = Math.max(1, Math.floor(G.session.risk / Math.abs(ref - stop))); f.dispatchEvent(new Event('input')); return;
     }
     case 'resume': return resume(id);
     case 'review': return resume(id, true);

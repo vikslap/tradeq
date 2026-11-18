@@ -55,3 +55,37 @@ test('practice stats aggregate across sessions', () => {
   assert.equal(st.trades, 2); assert.equal(st.wins, 1); assert.equal(st.totalR, 1);
   assert.ok(st.xp > 0);
 });
+
+import { fillOrder, checkOrder } from '../public/practice.js';
+
+test('limit buy: fills at the limit intrabar, at the open if it gaps below', () => {
+  const o = { type: 'LIMIT', side: 'LONG', price: 98 };
+  assert.deepEqual(fillOrder(o, bar(100, 101, 97, 99)), { price: 98, atOpen: false });
+  assert.deepEqual(fillOrder(o, bar(96, 99, 95, 97)), { price: 96, atOpen: true });
+  assert.equal(fillOrder(o, bar(100, 102, 98.5, 101)), null);
+});
+
+test('breakout stop buy: fills when price rises to the trigger; gaps fill at the open', () => {
+  const o = { type: 'STOP', side: 'LONG', price: 105 };
+  assert.deepEqual(fillOrder(o, bar(103, 106, 102, 105.5)), { price: 105, atOpen: false });
+  assert.deepEqual(fillOrder(o, bar(107, 108, 106, 107)), { price: 107, atOpen: true });
+  assert.equal(fillOrder(o, bar(103, 104.9, 101, 104)), null);
+});
+
+test('short limit / short stop mirror the long rules', () => {
+  assert.deepEqual(fillOrder({ type: 'LIMIT', side: 'SHORT', price: 102 }, bar(100, 103, 99, 101)), { price: 102, atOpen: false });
+  assert.deepEqual(fillOrder({ type: 'STOP', side: 'SHORT', price: 95 }, bar(97, 98, 94, 95)), { price: 95, atOpen: false });
+});
+
+test('order validation by type', () => {
+  assert.match(checkOrder({ type: 'LIMIT', side: 'LONG', price: 101 }, 100), /below the current price/);
+  assert.match(checkOrder({ type: 'STOP', side: 'LONG', price: 99 }, 100), /above the current price/);
+  assert.match(checkOrder({ type: 'LIMIT', side: 'LONG', price: 95, stop: 96 }, 100), /below your entry \(95\)/);
+  assert.equal(checkOrder({ type: 'LIMIT', side: 'LONG', price: 95, stop: 90, target: 110 }, 100), null);
+});
+
+test('on an intrabar fill bar only the stop is checked, not the target', () => {
+  const p = pos({ entryPrice: 98, stop: 94, initialStop: 94, target: 100.5 });
+  assert.equal(stepBar(p, bar(100, 101, 97, 99), 5, { skipTarget: true }).closed, null);
+  assert.equal(stepBar(p, bar(100, 101, 93, 99), 5, { skipTarget: true }).closed.exitReason, 'Stop');
+});
