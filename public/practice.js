@@ -160,7 +160,7 @@ export function pagePractice() {
 
 function setupHtml(st) {
   const ivs = Object.entries(IV_LABEL);
-  return `<section class="card" style="margin-bottom:16px"><header class="card-h"><h3>New replay</h3><span class="sub">Kite needed for real data</span></header>
+  return `<section class="card" style="margin-bottom:16px"><header class="card-h"><h3>New replay</h3><span class="sub">${ctx.kite().mock ? 'Demo candles — connect Kite for real data' : ctx.kite().connected ? 'Real Kite candles' : 'Kite needed for real data'}</span></header>
     <form id="pa-setup" class="stack">
       <div class="grid-3">
         <div class="field" style="grid-column:span 2"><label>Stock or index</label><div class="input-row"><input class="input" name="symbol" placeholder="e.g. RELIANCE, NIFTY 50" autocomplete="off"><button type="button" class="btn" data-pa="surprise">🎲 Surprise me</button></div>
