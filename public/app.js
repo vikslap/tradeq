@@ -692,7 +692,8 @@ function openTradeForm(t = null, prefill = {}) {
             <button type="button" class="btn live sm" data-action="live-price" data-field="entryPrice" ${live ? '' : 'disabled title="Connect Kite for live prices"'}>⚡ Live</button></div>
             <div class="live-tag" id="tag-entryPrice">${v.entrySource && v.entrySource !== 'manual' ? `⚡ ${v.entrySource === 'kite-fill' ? 'From Kite fill' : 'Live price'}` : ''}</div></div>
           <div class="field"><label>Quantity (units)</label><input class="input num" name="qty" type="number" step="any" min="0" value="${v.qty ?? ''}" required><div class="hint" id="lot-hint">${v.lotSize > 1 ? `1 lot = ${v.lotSize}` : ''}</div></div>
-          <div class="field"><label>Entry time</label><input class="input" name="entryTime" type="datetime-local" value="${toLocalInput(v.entryTime)}"></div>
+          <div class="field ${v.needDate ? 'need-date' : ''}"><label>Entry time</label><input class="input" name="entryTime" type="datetime-local" value="${v.needDate ? '' : toLocalInput(v.entryTime)}" ${v.needDate ? 'required' : ''}>
+            <div class="hint">${v.needDate ? '<span class="neg">Kite doesn\'t share the buy date — when did you buy?</span>' : t ? '' : 'Defaults to now — change it when logging an older trade'}</div></div>
         </div>
         <div class="grid-4">
           <div class="field trade-only"><label>Planned trigger</label><input class="input num" name="plannedEntry" type="number" step="any" min="0" value="${v.plannedEntry ?? ''}" placeholder="optional"></div>
@@ -801,6 +802,7 @@ function bindTradeForm(form) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const d = draftFromTradeForm(form); const base = form._base;
+    if (!d.entryTime) { $('#form-err', form).textContent = 'Set the date and time you entered this trade.'; form.entryTime.focus(); return; }
     const body = {
       symbol: d.symbol, exchange: d.exchange, segment: d.segment, side: d.side, qty: d.qty, entryPrice: d.entryPrice, plannedEntry: d.plannedEntry, horizon: d.horizon, sellCondition: d.sellCondition,
       stopLoss: d.stopLoss, target: d.target, setup: d.setup, thesis: d.thesis, emotionEntry: d.emotionEntry, confidence: d.confidence,
@@ -1264,7 +1266,7 @@ const actions = {
   'kite-sync': () => openSync(),
   'sync-log': (el) => {
     const r = S.sync.rows[+el.dataset.i]; const diff = r.kiteQty - r.journalQty; closeModal();
-    openTradeForm(null, { symbol: r.symbol, exchange: r.exchange, segment: guessSegment(r.exchange, r.symbol), side: diff > 0 ? 'LONG' : 'SHORT', qty: Math.abs(diff), entryPrice: r.avgPrice, entrySource: 'kite-fill' });
+    openTradeForm(null, { symbol: r.symbol, exchange: r.exchange, segment: guessSegment(r.exchange, r.symbol), side: diff > 0 ? 'LONG' : 'SHORT', qty: Math.abs(diff), entryPrice: r.avgPrice, entrySource: 'kite-fill', needDate: true });
   },
   'sync-close': (el) => {
     const r = S.sync.rows[+el.dataset.i]; closeModal();

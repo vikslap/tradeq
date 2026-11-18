@@ -405,3 +405,5 @@ form[data-horizon="LONGTERM"] span.lt-only { display: inline !important; }
 .tq-legend { position: absolute; top: 6px; left: 8px; z-index: 3; display: flex; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 11px; color: var(--muted); pointer-events: none; background: color-mix(in srgb, var(--panel) 80%, transparent); padding: 2px 6px; border-radius: 6px; }
 .tq-legend b { color: var(--text); font-weight: 600; }
 .chart-loading { height: 330px; }
+
+.need-date .input { border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
