@@ -159,15 +159,29 @@ XP is recalculated from the journal on every load. Editing or deleting a trade c
 ## Project layout
 
 ```
-server.js          HTTP server + JSON API (no dependencies)
-lib/store.js       journal storage, validation, stop-move tracking
-lib/kite.js        Kite Connect: login, quotes, instrument search, fills; demo mock
-public/            the app (vanilla JS modules, no build step)
-  game.js          gamification engine (XP rules, levels, badges, quests)
-  stats.js         performance statistics
-  app.js           UI
-scripts/demo.js    seeded demo with simulated prices
-test/              node:test unit tests → npm test
+server.js            HTTP server + JSON API (no dependencies)
+lib/                 store (journal file), Kite client, chart helpers
+public/
+  game.js            gamification engine (XP rules, levels, badges, quests)
+  stats.js           performance statistics
+  sync.js            journal ⇄ Kite reconciliation
+  tradebook.js       Console tradebook parsing and pairing
+  tradechart.js      interactive charts (Lightweight Charts)
+  drawing.js         trendline / level / ruler tools
+  practice.js        🎮 chart replay game
+  js/                the UI, one module per area:
+    main.js          routing, render, actions, boot
+    state.js         app state, API, Kite status, helpers on state
+    util.js          formatting and small UI helpers
+    ui.js            modals, toasts, confetti, level-up
+    dashboard.js · journal.js · insights.js · review.js · achievements.js · settings.js
+    forms.js         new/edit trade and close-trade forms
+    drawer.js        trade side panel and its chart
+    importers.js     Kite sync, fills, tradebook import, linking
+    live.js          live quote polling
+  vendor/            lightweight-charts (Apache-2.0)
+scripts/demo.js      seeded demo with simulated prices
+test/                node:test unit tests → npm test
 ```
 
 ## Ideas for later
