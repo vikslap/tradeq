@@ -1,6 +1,7 @@
 import { computeGame, metrics, entryChecks, exitChecks, dayKey, tradeKey, weekStart, LEVELS, MISTAKES, MISTAKE_TAGS, mistakeName, isMistake, HORIZONS, HORIZON_LABEL, isLT, isTrading, reviewStatus, REVIEW_DAYS } from './game.js';
 import { computeStats, groupBy, rHistogram, investmentStats } from './stats.js';
 import { reconcile } from './sync.js';
+import { mountTradeChart, INTERVAL_LABEL } from './tradechart.js';
 
 // =====================================================================
 // Utilities
@@ -67,6 +68,8 @@ const S = {
   f: { q: '', status: 'all', segment: 'all', setup: 'all', horizon: 'all' },
   drawerId: null, reviewWeek: null,
   portfolio: null, sync: null, charts: {}, view: 'TRADING',
+  chartIv: {}, cv: null, big: null,
+  emas: (() => { try { const v = localStorage.getItem('tq-emas'); return v == null ? [20, 50] : v.split(',').filter(Boolean).map(Number); } catch { return [20, 50]; } })(),
 };
 
 async function api(url, { method = 'GET', body } = {}) {
@@ -652,7 +655,7 @@ function openModal(html, { dismissable = false } = {}) {
   root.innerHTML = `<div class="overlay" ${dismissable ? 'data-dismiss' : ''}>${html}</div>`;
   return root.firstElementChild.firstElementChild;
 }
-function closeModal() { $('#modal-root').innerHTML = ''; }
+function closeModal() { S.big?.inst?.destroy(); S.big = null; $('#modal-root').innerHTML = ''; }
 
 function confirmBox(title, body, okLabel = 'Confirm') {
   return new Promise((resolve) => {
@@ -955,79 +958,64 @@ function openCloseForm(t, prefill = {}) {
 }
 
 // ---------- Drawer ----------
-// ---------- Trade chart ----------
-const STEP = { '5minute': 5 * 60000, '60minute': 3600000, day: 86400000 };
-const chartKey = (t) => `${t.updatedAt}|${t.status === 'OPEN' ? Math.floor(Date.now() / 300000) : ''}`;
+// ---------- Trade chart (interactive) ----------
+const theme = () => document.documentElement.dataset.theme || 'dark';
+const dataKey = (t, iv) => `${t.id}|${iv || 'auto'}|${t.status === 'OPEN' ? Math.floor(Date.now() / 300000) : t.updatedAt}`;
 
-function chartHtml(t) {
-  const c = S.charts[t.id];
-  if (c?.key === chartKey(t)) return c.error ? `<div class="empty-sm">${esc(c.error)}</div>` : candleChart(t, c.data);
-  if (!c || c.key !== chartKey(t)) queueMicrotask(() => loadChart(t));
-  return `<div class="chart-loading">${S.kite.connected || t.status === 'CLOSED' ? 'Loading chart…' : 'Connect Kite to see this trade on a chart.'}</div>`;
+async function chartData(t, iv) {
+  const k = dataKey(t, iv);
+  if (S.charts[k]) return S.charts[k];
+  const data = await api(`/api/trades/${t.id}/chart${iv ? `?interval=${iv}` : ''}`);
+  S.charts[k] = data;
+  if (data.updated) setTimeout(() => reload({ celebrate: true }), 0);
+  return data;
 }
 
-async function loadChart(t) {
-  const key = chartKey(t);
-  if (S.charts[t.id]?.loading === key) return;
+function chartToolbar(t, iv, def) {
+  const cur = iv || def;
+  return `<div class="chart-bar">
+    <div class="seg sm-seg">${Object.entries(INTERVAL_LABEL).map(([v, l]) => `<label><input type="radio" name="iv-${t.id}" data-action-iv="${v}" ${cur === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+    <div class="chips">${[20, 50, 200].map((n) => `<label><input type="checkbox" data-action-ema="${n}" ${S.emas.includes(n) ? 'checked' : ''}><span class="ema-chip ema-${n}">EMA ${n}</span></label>`).join('')}</div>
+    <span style="flex:1"></span>
+    <button class="btn ghost sm" data-action="chart-expand" data-id="${t.id}" title="Full screen">⛶ Expand</button>
+  </div>`;
+}
+
+/** Mount (or re-attach) the chart in the open drawer without rebuilding it on every live tick. */
+async function mountDrawerChart(t) {
+  const slot = $('#trade-chart'); if (!slot) return;
+  const iv = S.chartIv[t.id];
+  const key = `${dataKey(t, iv)}|${theme()}|${S.emas.join(',')}`;
+  if (S.cv?.tradeId === t.id && S.cv.key === key) { slot.replaceWith(S.cv.wrap); return; }
+  if (S.cv) { S.cv.inst?.destroy(); S.cv = null; }
+  const wrap = document.createElement('div'); wrap.id = 'trade-chart';
+  wrap.innerHTML = `<div class="chart-loading">${S.kite.connected || t.status === 'CLOSED' ? 'Loading chart…' : 'Connect Kite to see this trade on a chart.'}</div>`;
+  slot.replaceWith(wrap);
+  const cv = { tradeId: t.id, key, wrap, inst: null };
+  S.cv = cv;
   if (!S.kite.connected && t.status === 'OPEN') return;
-  S.charts[t.id] = { ...(S.charts[t.id] || {}), loading: key };
   try {
-    const data = await api(`/api/trades/${t.id}/chart`);
-    S.charts[t.id] = { key, data };
-    if (data.updated) { await reload({ celebrate: true }); return; }
+    const data = await chartData(t, iv);
+    if (S.cv !== cv) return;
+    if (!data.candles?.length) { wrap.innerHTML = '<div class="chart-loading">No candles for this period.</div>'; return; }
+    wrap.innerHTML = `${chartToolbar(t, iv, data.interval)}<div class="chart-host"></div>${S.kite.mock ? '<div class="faint" style="font-size:11px;margin-top:4px">Demo data</div>' : ''}`;
+    cv.inst = mountTradeChart($('.chart-host', wrap), t, data, { height: 330, emas: S.emas });
+    const ltp = t.status === 'OPEN' ? ltpFor(t) : null; if (ltp) cv.inst.setLive(ltp);
   } catch (e) {
-    S.charts[t.id] = { key, error: e.code === 'TOKEN' ? 'Connect Kite to load this chart.' : e.message };
+    if (S.cv === cv) wrap.innerHTML = `<div class="chart-loading">${esc(e.code === 'TOKEN' ? 'Connect Kite to load this chart.' : e.message)}</div>`;
   }
-  const el = $('#trade-chart');
-  if (el && S.drawerId === t.id) el.innerHTML = chartHtml(t);
 }
 
-function candleChart(t, { candles, interval }) {
-  if (!candles?.length) return '<div class="empty-sm">No candles returned for this period.</div>';
-  const W = 600; const H = 290; const PL = 6; const PR = 110; const PT = 10; const PB = 22;
-  const n = candles.length; const bw = (W - PL - PR) / n; const step = STEP[interval];
-  const X = (i) => PL + i * bw + bw / 2;
-  const idxAt = (iso) => { const ms = new Date(iso).getTime(); const i = candles.findIndex((c) => c[0] + step > ms); return i < 0 ? n - 1 : i; };
-  const iE = idxAt(t.entryTime);
-  const iX = t.status === 'CLOSED' && t.exitTime ? idxAt(t.exitTime) : n - 1;
-  const levels = [
-    { v: t.target, label: 'TGT', col: 'var(--green)', dash: '5 4' },
-    { v: t.entryPrice, label: 'ENTRY', col: 'var(--accent)', dash: '' },
-    { v: t.initialStop, label: 'SL', col: 'var(--red)', dash: '5 4' },
-    t.stopLoss != null && t.stopLoss !== t.initialStop ? { v: t.stopLoss, label: 'SL NOW', col: 'var(--red)', dash: '2 3' } : null,
-    t.status === 'CLOSED' ? { v: t.exitPrice, label: 'EXIT', col: 'var(--gold)', dash: '' } : null,
-  ].filter((l) => l && l.v != null);
-  let lo = Math.min(...candles.map((c) => c[3]), ...levels.map((l) => l.v));
-  let hi = Math.max(...candles.map((c) => c[2]), ...levels.map((l) => l.v));
-  const pad = (hi - lo) * 0.05 || hi * 0.01; lo -= pad; hi += pad;
-  const Y = (v) => PT + ((hi - v) / (hi - lo)) * (H - PT - PB);
-  const x0 = X(iE) - bw / 2; const x1 = X(iX) + bw / 2;
-  const zone = (a, b, col) => (a == null || b == null ? '' : `<rect x="${x0.toFixed(1)}" y="${Math.min(Y(a), Y(b)).toFixed(1)}" width="${(x1 - x0).toFixed(1)}" height="${Math.abs(Y(a) - Y(b)).toFixed(1)}" style="fill:${col};opacity:.12"/>`);
-  const cw = Math.max(1, bw * 0.62);
-  const bars = candles.map((c, i) => {
-    const up = c[4] >= c[1]; const col = up ? 'var(--green)' : 'var(--red)';
-    const yo = Y(c[1]); const yc = Y(c[4]); const dim = i < iE || i > iX ? ';opacity:.45' : '';
-    return `<line x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${Y(c[2]).toFixed(1)}" y2="${Y(c[3]).toFixed(1)}" style="stroke:${col}${dim}" stroke-width="1"/>`
-      + `<rect x="${(X(i) - cw / 2).toFixed(1)}" y="${Math.min(yo, yc).toFixed(1)}" width="${cw.toFixed(1)}" height="${Math.max(1, Math.abs(yc - yo)).toFixed(1)}" style="fill:${col}${dim}"/>`;
-  }).join('');
-  // Right-hand labels, nudged apart so they don't overlap.
-  const labs = levels.map((l) => ({ ...l, y: Y(l.v) })).sort((a, b) => a.y - b.y);
-  for (let i = 1; i < labs.length; i++) if (labs[i].y - labs[i - 1].y < 15) labs[i].y = labs[i - 1].y + 15;
-  const lines = levels.map((l) => `<line x1="${PL}" x2="${W - PR}" y1="${Y(l.v).toFixed(1)}" y2="${Y(l.v).toFixed(1)}" style="stroke:${l.col}" stroke-width="1.2" stroke-dasharray="${l.dash}" opacity=".9"/>`).join('');
-  const tags = labs.map((l) => `<rect x="${W - PR + 3}" y="${(l.y - 7).toFixed(1)}" width="${PR - 4}" height="14" rx="3" style="fill:${l.col}"/><text x="${W - PR + 7}" y="${(l.y + 3.5).toFixed(1)}" class="tag">${l.label} ${nf2.format(l.v)}</text>`).join('');
-  const dir = t.side === 'SHORT' ? -1 : 1;
-  const entryMark = `<path d="M${X(iE)},${(Y(t.entryPrice) + 4 * dir).toFixed(1)} l-5,${9 * dir} l10,0 z" style="fill:var(--accent)"/>`;
-  const exitMark = t.status === 'CLOSED' ? `<circle cx="${X(iX).toFixed(1)}" cy="${Y(t.exitPrice).toFixed(1)}" r="4.5" style="fill:var(--gold);stroke:var(--panel)" stroke-width="1.5"/>` : '';
-  const fmtT = (ms) => new Date(ms).toLocaleString('en-IN', interval === 'day' ? { day: '2-digit', month: 'short' } : { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
-  const ticks = [0, 0.33, 0.66, 1].map((f) => Math.round(f * (n - 1)));
-  const xl = [...new Set(ticks)].map((i) => `<text x="${X(i).toFixed(1)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${esc(fmtT(candles[i][0]))}</text>`).join('');
-  const name = { '5minute': '5-minute', '60minute': 'Hourly', day: 'Daily' }[interval];
-  return `<div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="label">${name} chart${S.kite.mock ? ' · demo data' : ''}</span>
-      <span class="faint" style="font-size:11.5px">shaded = time in trade · <span style="color:var(--green)">reward</span> / <span style="color:var(--red)">risk</span> zone</span></div>
-    <svg class="chart candles" viewBox="0 0 ${W} ${H}">
-      ${zone(t.entryPrice, t.target, 'var(--green)')}${zone(t.entryPrice, t.initialStop, 'var(--red)')}
-      ${bars}${lines}${entryMark}${exitMark}${tags}${xl}
-    </svg>`;
+async function openBigChart(t) {
+  const iv = S.chartIv[t.id];
+  const el = openModal(`<div class="modal" style="width:min(1400px,100%)"><div class="modal-h"><h2>${esc(t.symbol)} <span class="exch">${t.exchange}</span> <span class="side ${t.side}">${t.side}</span> ${horizonPill(t)}</h2><button class="btn ghost sm" data-action="close-modal">✕</button></div>
+    <div class="modal-b" id="big-chart"><div class="chart-loading" style="height:70vh">Loading chart…</div></div></div>`, { dismissable: true });
+  try {
+    const data = await chartData(t, iv);
+    const box = $('#big-chart', el); if (!box) return;
+    box.innerHTML = `${chartToolbar(t, iv, data.interval).replace('data-action="chart-expand"', 'data-action="close-modal"').replace('⛶ Expand', '✕ Close')}<div class="chart-host"></div>`;
+    S.big = { tradeId: t.id, inst: mountTradeChart($('.chart-host', box), t, data, { height: Math.round(window.innerHeight * 0.72), emas: S.emas }) };
+  } catch (e) { const box = $('#big-chart', el); if (box) box.innerHTML = `<div class="warn">${esc(e.message)}</div>`; }
 }
 
 function renderDrawer() {
@@ -1044,7 +1032,7 @@ function renderDrawer() {
         <div class="muted" style="margin-top:4px;font-size:12.5px">${fmtDT(t.entryTime)}${t.exitTime && t.status === 'CLOSED' ? ' → ' + fmtDT(t.exitTime) : ''} · ${hold(m.holdDays)}</div></div>
       <button class="btn ghost sm" data-action="close-drawer">✕</button>
     </div>
-    <div class="sec" style="padding-top:12px;padding-bottom:12px"><div id="trade-chart">${chartHtml(t)}</div></div>
+    <div class="sec" style="padding-top:12px;padding-bottom:12px"><div id="trade-chart"></div></div>
     <div class="sec"><div class="row" style="justify-content:space-between;align-items:flex-end">
       <div><div class="label">${t.status === 'OPEN' ? 'Unrealised P&L' : 'Net P&L'}</div><div class="mono ${cls(m.net)}" style="font-size:28px;font-weight:700;margin-top:4px">${m.net == null ? '—' : money(m.net, { sign: true })}</div></div>
       <div style="text-align:right"><div class="mono ${cls(m.r)}" style="font-size:18px;font-weight:650">${rfmt(m.r)}</div>${xpPill(x)}</div></div></div>
@@ -1082,6 +1070,7 @@ function renderDrawer() {
       <span style="flex:1"></span><button class="btn danger" data-action="delete-trade" data-id="${t.id}">Delete</button>
     </div>
   </aside>`;
+  mountDrawerChart(t);
 }
 
 // ---------- Kite fills ----------
@@ -1231,7 +1220,8 @@ function paintLive() {
   const k = $('#kpis'); if (k) k.innerHTML = kpiTiles();
   const ln = $('#live-note'); if (ln) ln.innerHTML = liveNote();
   const jb = $('#journal-body'); if (jb) jb.innerHTML = journalRows();
-  if (S.drawerId) { const t = S.state.trades.find((x) => x.id === S.drawerId); if (t?.status === 'OPEN') renderDrawer(); }
+  if (S.drawerId) { const t = S.state.trades.find((x) => x.id === S.drawerId); if (t?.status === 'OPEN') { renderDrawer(); if (S.cv?.inst && ltpFor(t)) S.cv.inst.setLive(ltpFor(t)); } }
+  if (S.big?.inst) { const t = findTrade(S.big.tradeId); if (t?.status === 'OPEN' && ltpFor(t)) S.big.inst.setLive(ltpFor(t)); }
 }
 
 // =====================================================================
@@ -1242,13 +1232,15 @@ const actions = {
   'toggle-theme': () => {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
     document.documentElement.dataset.theme = next;
+    S.cv?.inst?.destroy(); S.cv = null;
     try { localStorage.setItem('tq-theme', next); } catch { /* private mode */ }
     render();
   },
   'new-trade': () => openTradeForm(),
   'close-modal': () => closeModal(),
   'open-drawer': (el) => { S.drawerId = el.dataset.id; renderDrawer(); },
-  'close-drawer': () => { S.drawerId = null; $('#drawer-root').innerHTML = ''; },
+  'close-drawer': () => { S.drawerId = null; S.cv?.inst?.destroy(); S.cv = null; $('#drawer-root').innerHTML = ''; },
+  'chart-expand': (el) => openBigChart(findTrade(el.dataset.id)),
   'close-trade': async (el, e) => { e.stopPropagation(); const id = el.dataset.id; await reload(); openCloseForm(findTrade(id)); },
   'edit-trade': (el) => openTradeForm(findTrade(el.dataset.id)),
   'edit-exit': (el) => { const t = findTrade(el.dataset.id); openCloseForm(t, { exitPrice: t.exitPrice, exitTime: t.exitTime, exitSource: t.exitSource }); },
@@ -1317,6 +1309,15 @@ function bindGlobal() {
   // Journal filters
   document.addEventListener('input', (e) => {
     if (e.target.hasAttribute?.('data-action-view')) { S.view = e.target.value; render(); return; }
+    const iv = e.target.dataset?.actionIv; const emaN = e.target.dataset?.actionEma;
+    if (iv || emaN) {
+      if (emaN) { const n = +emaN; S.emas = e.target.checked ? [...new Set([...S.emas, n])].sort((a, b) => a - b) : S.emas.filter((x) => x !== n); try { localStorage.setItem('tq-emas', S.emas.join(',')); } catch { /* ignore */ } }
+      const id = S.big?.tradeId || S.drawerId; const t = findTrade(id); if (!t) return;
+      if (iv) S.chartIv[t.id] = iv;
+      if (S.big) { closeModal(); openBigChart(t); }
+      if (S.drawerId) { S.cv?.inst?.destroy(); S.cv = null; renderDrawer(); }
+      return;
+    }
     const k = e.target.dataset?.filter; if (!k) return;
     S.f[k] = e.target.value; const jb = $('#journal-body'); if (jb) jb.innerHTML = journalRows();
   });
