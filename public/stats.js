@@ -92,8 +92,9 @@ export function xirr(flows) {
   return (lo + hi) / 2;
 }
 
-/** CAGR only makes sense after a while; under 30 days we show the plain return. */
-const cagr = (ret, days) => (ret != null && days >= 30 ? Math.pow(1 + ret, 365 / days) - 1 : null);
+/** Annualising short holding periods exaggerates wildly, so CAGR is only shown after a year. */
+export const CAGR_MIN_DAYS = 365;
+const cagr = (ret, days) => (ret != null && days >= CAGR_MIN_DAYS ? Math.pow(1 + ret, 365 / days) - 1 : null);
 
 export function investmentStats(trades, ltpFor, now = Date.now()) {
   const lt = trades.filter((t) => t.horizon === 'LONGTERM');
@@ -104,7 +105,7 @@ export function investmentStats(trades, ltpFor, now = Date.now()) {
     const days = (now - new Date(t.entryTime)) / 86400000;
     const ret = value != null ? value / inv - 1 : null;
     flows.push({ t: new Date(t.entryTime).getTime(), v: -inv }, { t: now, v: value ?? inv });
-    return { t, inv, ltp, value, pnl: value != null ? value - inv : null, ret, cagr: cagr(ret, days), days };
+    return { t, inv, ltp, value, pnl: value != null ? value - inv : null, ret, cagr: cagr(ret, days), days, unpriced: value == null };
   });
   const sold = lt.filter((t) => t.status === 'CLOSED' && t.exitTime).map((t) => {
     const inv = t.entryPrice * t.qty; const net = metrics(t).net;
@@ -113,12 +114,17 @@ export function investmentStats(trades, ltpFor, now = Date.now()) {
     return { t, inv, net, ret: net / inv, cagr: cagr(net / inv, days), days };
   });
   const priced = holdings.filter((h) => h.value != null);
+  const invested = sum(holdings.map((h) => h.inv));
+  // Holdings without a live price are valued at cost so totals still add up.
+  const value = sum(holdings.map((h) => h.value ?? h.inv));
+  const unrealised = sum(priced.map((h) => h.pnl));
+  const oldest = flows.length ? Math.min(...flows.map((f) => f.t)) : now;
   return {
-    holdings, sold,
-    invested: sum(holdings.map((h) => h.inv)),
-    value: priced.length === holdings.length ? sum(holdings.map((h) => h.value)) : null,
-    unrealised: priced.length ? sum(priced.map((h) => h.pnl)) : null,
+    holdings, sold, invested, value, unrealised,
+    unpriced: holdings.length - priced.length,
+    returnPct: invested ? unrealised / invested : null,
     realised: sum(sold.map((x) => x.net)),
-    xirr: xirr(flows),
+    // Same rule as CAGR: an annualised portfolio return only once there's a year of history.
+    xirr: (now - oldest) / 86400000 >= CAGR_MIN_DAYS ? xirr(flows) : null,
   };
 }

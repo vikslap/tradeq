@@ -412,3 +412,6 @@ form[data-horizon="LONGTERM"] span.lt-only { display: inline !important; }
 .dropzone b { color: var(--text); }
 .dropzone:hover, .dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
 .tbl input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.lt-sum { white-space: normal; text-align: right; line-height: 1.5; }
+#lt-card .card-h { align-items: flex-start; flex-wrap: wrap; }

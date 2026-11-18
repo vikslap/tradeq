@@ -237,13 +237,13 @@ function longTermInner() {
   const inv = investmentStats(S.state.trades, ltpFor);
   const rows = inv.holdings.sort((a, b) => b.inv - a.inv);
   return `<header class="card-h"><h3>🌳 Long-term holdings <span class="faint" style="font-weight:500">· ${rows.length}</span></h3>
-      <span class="sub">invested ${compact(inv.invested)} · value ${compact(inv.value)} · <span class="${cls(inv.unrealised)}">${inv.unrealised == null ? '—' : compact(inv.unrealised)}</span> · XIRR <b class="${cls(inv.xirr)}">${pct(inv.xirr)}</b>${inv.sold.length ? ` · realised ${compact(inv.realised)}` : ''}</span></header>
+      <span class="sub lt-sum">invested ${compact(inv.invested)} · value ${compact(inv.value)}${inv.unpriced ? `<span class="faint" title="${inv.unpriced} holding(s) without a live price are counted at cost">*</span>` : ''} · P&L <span class="${cls(inv.unrealised)}">${compact(inv.unrealised)} (${pct(inv.returnPct)})</span>${inv.xirr != null ? ` · XIRR <b class="${cls(inv.xirr)}">${pct(inv.xirr)}</b>` : ''}${inv.sold.length ? ` · realised ${compact(inv.realised)}` : ''}</span></header>
     ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Symbol</th><th class="r">Qty</th><th class="r">Avg</th><th class="r">LTP</th><th class="r">Value</th><th class="r">P&L</th><th class="r">Return</th><th class="r">CAGR</th><th>Held</th><th>Thesis review</th><th></th></tr></thead><tbody>
     ${rows.map((h) => { const rs = reviewStatus(h.t); return `<tr class="click" data-action="open-drawer" data-id="${h.t.id}">
       <td><span class="sym">${esc(h.t.symbol)}</span><span class="exch">${h.t.exchange}</span></td>
-      <td class="r num">${nf0.format(h.t.qty)}</td><td class="r num">${price(h.t.entryPrice)}</td><td class="r num">${price(h.ltp)}</td>
+      <td class="r num">${nf0.format(h.t.qty)}</td><td class="r num">${price(h.t.entryPrice)}</td><td class="r num">${h.unpriced ? `<span class="faint" title="${S.kite.connected ? 'Kite returned no price for this symbol — check it matches Kite (Edit → symbol search)' : 'Connect Kite for live prices'}">no price</span>` : price(h.ltp)}</td>
       <td class="r num">${h.value == null ? '—' : compact(h.value)}</td><td class="r num ${cls(h.pnl)}">${h.pnl == null ? '—' : money(h.pnl, { sign: true, dp: 0 })}</td>
-      <td class="r num ${cls(h.ret)}">${pct(h.ret)}</td><td class="r num ${cls(h.cagr)}">${h.cagr == null ? '<span class="faint">&lt;30d</span>' : pct(h.cagr)}</td>
+      <td class="r num ${cls(h.ret)}">${pct(h.ret)}</td><td class="r num ${cls(h.cagr)}">${h.cagr != null ? pct(h.cagr) : h.unpriced ? '<span class="faint" title="No live price">—</span>' : '<span class="faint" title="Annualised returns are shown after 1 year — short periods exaggerate">&lt;1y</span>'}</td>
       <td class="muted">${hold(h.days)}</td>
       <td>${rs.overdue ? '<span class="pill red">overdue</span>' : rs.daysLeft <= 14 ? `<span class="pill gold">due in ${rs.daysLeft}d</span>` : `<span class="pill">in ${rs.daysLeft}d</span>`}</td>
       <td class="r"><button class="btn sm" data-action="thesis-review" data-id="${h.t.id}">Review</button></td></tr>`; }).join('')}</tbody></table></div>`

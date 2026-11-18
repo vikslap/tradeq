@@ -162,3 +162,17 @@ test('equity curve is daily: spread legs closed the same day net out (no fake dr
   assert.ok(Math.abs(s.curve[1].v - (1701.4 - 1792.3) * 65) < 1e-6);
   assert.ok(s.maxDD < 6000);                     // not the ~₹1.16L intra-day sequence
 });
+
+test('backdated long-term holdings are not instantly overdue; CAGR/XIRR wait a year', async () => {
+  const { reviewStatus } = await import('../public/game.js');
+  const { investmentStats } = await import('../public/stats.js');
+  const now = Date.now(); const d = (n) => new Date(now - n * 86400000).toISOString();
+  const t = { id: 'g', horizon: 'LONGTERM', symbol: 'ITC', qty: 70, entryPrice: 280.9, entryTime: d(170), createdAt: d(1), status: 'OPEN', side: 'LONG' };
+  assert.equal(reviewStatus(t).overdue, false);
+  const short = { ...t, id: 'gw', entryTime: d(49), entryPrice: 183.14, qty: 50 };
+  const inv = investmentStats([short, { ...t, id: 'gs', symbol: '725GS2063', qty: 500, entryPrice: 95.88 }], (x) => (x.id === 'gw' ? 228.75 : null), now);
+  assert.equal(inv.holdings[0].cagr, null);        // 49 days: no annualising
+  assert.equal(inv.xirr, null);                    // < 1 year of history
+  assert.equal(inv.unpriced, 1);
+  assert.ok(Math.abs(inv.value - (228.75 * 50 + 95.88 * 500)) < 1e-6); // unpriced counted at cost
+});

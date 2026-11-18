@@ -15,7 +15,10 @@ export const REVIEW_DAYS = 90;
 
 /** When a long-term holding's next thesis review is due. */
 export function reviewStatus(t, now = Date.now()) {
-  const last = (t.thesisReviews || []).map((r) => r.at).sort().at(-1) || t.entryTime;
+  // The clock starts when you began journaling the holding (not its old buy date),
+  // so backfilled investments aren't instantly overdue.
+  const started = [t.entryTime, t.createdAt].filter(Boolean).sort().at(-1);
+  const last = (t.thesisReviews || []).map((r) => r.at).sort().at(-1) || started;
   const due = new Date(last).getTime() + REVIEW_DAYS * DAY_MS;
   return { last, due: new Date(due).toISOString(), overdue: now > due, daysLeft: Math.ceil((due - now) / DAY_MS) };
 }
