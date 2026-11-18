@@ -69,7 +69,7 @@ const S = {
   f: { q: '', status: 'all', segment: 'all', setup: 'all', horizon: 'all' },
   drawerId: null, reviewWeek: null,
   portfolio: null, sync: null, charts: {}, view: 'TRADING',
-  chartIv: {}, cv: null, big: null,
+  chartIv: {}, cv: null, big: null, sel: new Set(),
   emas: (() => { try { const v = localStorage.getItem('tq-emas'); return v == null ? [20, 50] : v.split(',').filter(Boolean).map(Number); } catch { return [20, 50]; } })(),
 };
 
@@ -84,7 +84,7 @@ async function reload({ celebrate = false } = {}) {
   const prev = S.game;
   S.state = await api('/api/state');
   S.game = computeGame(S.state);
-  S.stats = computeStats(S.state.trades.filter(isTrading));
+  S.stats = computeStats(S.state.trades.filter(isTrading), S.state.groups);
   if (S.portfolio) S.sync = reconcile(S.state.trades, S.portfolio, S.state.settings.syncIgnore);
   if (celebrate && prev) celebrateDiff(prev, S.game);
   render();
@@ -120,6 +120,21 @@ const VIEWS = [['TRADING', 'Trading'], ['LONGTERM', 'Long-term'], ['ALL', 'All']
 const viewTrades = () => S.state.trades.filter((t) => (S.view === 'ALL' ? true : S.view === 'LONGTERM' ? isLT(t) : isTrading(t)));
 const viewSeg = () => `<div class="seg sm-seg">${VIEWS.map(([v, l]) => `<label><input type="radio" name="view" data-action-view value="${v}" ${S.view === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
 const horizonPill = (t) => `<span class="pill ${isLT(t) ? 'gold' : ''}">${HORIZON_LABEL[t.horizon] || '—'}</span>`;
+const groupOf = (t) => (t.groupId ? (S.state.groups || []).find((g) => g.id === t.groupId) : null);
+const legsOfGroup = (gid) => S.state.trades.filter((t) => t.groupId === gid);
+const linkPill = (t) => { const g = groupOf(t); return g ? `<span class="pill violet" title="Linked: ${esc(g.name)}">🔗 ${esc(g.name.length > 22 ? g.name.slice(0, 21) + '…' : g.name)}</span>` : ''; };
+
+/** Suggest a name: "NIFTY 26N17 23400/23600 CE" for option legs on one underlying + expiry. */
+function suggestGroupName(legs) {
+  const parts = legs.map((t) => t.symbol.match(/^([A-Z&-]+?)(\d{2}(?:[A-Z]{3}|[1-9OND]\d{2}))(\d+(?:\.\d+)?)(CE|PE)$/));
+  if (parts.every(Boolean) && new Set(parts.map((p) => p[1] + p[2])).size === 1) {
+    const strikes = [...new Set(parts.map((p) => p[3]))].sort((a, b) => a - b);
+    const types = [...new Set(parts.map((p) => p[4]))];
+    return `${parts[0][1]} ${parts[0][2]} ${strikes.join('/')} ${types.join('/')}`;
+  }
+  return legs.map((t) => t.symbol).join(' / ');
+}
+
 const quoteFor = (t) => S.quotes[tradeKey(t)];
 const ltpFor = (t) => quoteFor(t)?.last ?? null;
 
@@ -216,7 +231,7 @@ function pageDashboard() {
     </section>
     ${longTermCard()}
     <section class="card">
-      ${(() => { const vs = computeStats(viewTrades()); return `<header class="card-h"><h3>Equity curve</h3>${viewSeg()}</header>
+      ${(() => { const vs = computeStats(viewTrades(), S.state.groups); return `<header class="card-h"><h3>Equity curve</h3>${viewSeg()}</header>
       <div class="sub" style="margin:-6px 0 10px">${vs.count} closed · net ${compact(vs.net)} · max drawdown ${compact(-vs.maxDD)} · daily, by exit date</div>
       ${equityChart(vs.curve)}`; })()}
     </section>
@@ -297,7 +312,7 @@ function openPositionsInner() {
     const q = quoteFor(t); const m = metrics(t, q?.last ?? null);
     const flash = S.flash.has(tradeKey(t));
     return `<tr class="click" data-action="open-drawer" data-id="${t.id}">
-      <td><span class="sym">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span></td>
+      <td><span class="sym">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span> ${linkPill(t)}</td>
       <td><span class="side ${t.side}">${t.side}</span></td>
       <td class="r num">${nf0.format(t.qty)}</td>
       <td class="r num">${price(t.entryPrice)}</td>
@@ -343,6 +358,12 @@ function filteredTrades() {
   }).sort((a, b) => new Date(b.entryTime) - new Date(a.entryTime));
 }
 
+function selBar() {
+  const n = S.sel.size;
+  if (!n) return '';
+  return `<span class="row" style="gap:6px"><span class="pill violet">${n} selected</span>${n >= 2 ? '<button class="btn sm primary" data-action="link-selected">🔗 Link as one position</button>' : '<span class="faint" style="font-size:12px">select 2+ legs to link</span>'}<button class="btn sm ghost" data-action="clear-sel">Clear</button></span>`;
+}
+
 function setupOptions() {
   return [...new Set([...S.state.trades.map((t) => t.setup).filter(Boolean), ...DEFAULT_SETUPS])];
 }
@@ -358,10 +379,11 @@ function pageJournal() {
       <select class="input" data-filter="horizon"><option value="all">All types</option><option value="TRADING" ${f.horizon === 'TRADING' ? 'selected' : ''}>Trading only</option>${HORIZONS.map(([v, l]) => `<option value="${v}" ${f.horizon === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select class="input" data-filter="segment"><option value="all">All segments</option>${SEGMENTS.map(([v, l]) => `<option value="${v}" ${f.segment === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select class="input" data-filter="setup"><option value="all">All setups</option>${usedSetups.map((s) => `<option ${f.setup === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
+      <span id="sel-bar">${selBar()}</span>
       <span class="muted" id="journal-summary" style="margin-left:auto"></span>
     </div>
     <div class="card" style="padding:6px 14px"><div class="table-wrap"><table class="tbl"><thead><tr>
-      <th>Entered</th><th>Symbol</th><th>Type</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Exit / LTP</th><th class="r">Net P&L</th><th class="r">R</th><th>Setup</th><th>Plan</th><th class="r">XP</th></tr></thead>
+      <th style="width:28px"><input type="checkbox" data-sel-all title="Select all shown"></th><th>Entered</th><th>Symbol</th><th>Type</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Exit / LTP</th><th class="r">Net P&L</th><th class="r">R</th><th>Setup</th><th>Plan</th><th class="r">XP</th></tr></thead>
       <tbody id="journal-body">${journalRows()}</tbody></table></div></div>`;
 }
 
@@ -371,14 +393,15 @@ function journalRows() {
     const el = $('#journal-summary');
     if (el) { const n = sum(list.filter((t) => t.status === 'CLOSED').map((t) => metrics(t).net)); el.innerHTML = `${list.length} trades · realised <span class="${cls(n)} mono">${money(n, { sign: true })}</span>`; }
   });
-  if (!list.length) return `<tr><td colspan="12"><div class="empty-sm">${S.state.trades.length ? 'No trades match these filters.' : 'No trades yet — log your first one.'}</div></td></tr>`;
+  if (!list.length) return `<tr><td colspan="13"><div class="empty-sm">${S.state.trades.length ? 'No trades match these filters.' : 'No trades yet — log your first one.'}</div></td></tr>`;
   return list.map((t) => {
     const ltp = t.status === 'OPEN' ? ltpFor(t) : null;
     const m = metrics(t, ltp); const x = S.game.tradeXp[t.id] || 0;
     const plan = t.status === 'OPEN' ? '<span class="pill violet">open</span>' : t.followedPlan === true ? '<span class="pill green">✓ kept</span>' : t.followedPlan === false ? '<span class="pill red">✕ broke</span>' : '<span class="pill">—</span>';
-    return `<tr class="click" data-action="open-drawer" data-id="${t.id}">
+    return `<tr class="click ${S.sel.has(t.id) ? 'selected' : ''}" data-action="open-drawer" data-id="${t.id}">
+      <td data-stop><input type="checkbox" data-sel="${t.id}" ${S.sel.has(t.id) ? 'checked' : ''}></td>
       <td class="muted">${fmtDate(t.entryTime)}</td>
-      <td><span class="sym">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span></td>
+      <td><span class="sym">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span> ${linkPill(t)}</td>
       <td>${horizonPill(t)}</td>
       <td><span class="side ${t.side}">${t.side}</span></td>
       <td class="r num">${nf0.format(t.qty)}</td>
@@ -407,7 +430,7 @@ function bars(groups, { fmt = (v) => money(v, { sign: true, dp: 0 }) } = {}) {
 }
 
 function pageInsights() {
-  const st = computeStats(viewTrades()); const g = S.game;
+  const st = computeStats(viewTrades(), S.state.groups); const g = S.game;
   const head = `<div class="page-h"><div><h1>Insights</h1><p>Where your edge lives — and where it leaks.</p></div>${viewSeg()}</div>`;
   if (!st.count) return `${head}<div class="card empty"><div class="big">📊</div><h2>Close a few trades to unlock insights</h2><p>You'll see P&L by setup, weekday and emotion, your R-multiple distribution, and exactly what your mistakes cost you.</p></div>`;
   const closed = st.closed;
@@ -416,16 +439,19 @@ function pageInsights() {
 
   // Mistake cost — every mistake the engine knows, plus anything you self-reported.
   const agg = Object.fromEntries(Object.values(MISTAKES).map((n) => [n, { n: 0, net: 0 }]));
+  const legsOf = (t) => t.legs || [t];
   for (const { t, m } of closed) {
     const seen = new Set();
-    for (const i of g.perTrade[t.id]?.mistakes || []) {
+    for (const i of legsOf(t).flatMap((l) => g.perTrade[l.id]?.mistakes || [])) {
       const k = mistakeName(i); if (seen.has(k)) continue; seen.add(k);
       (agg[k] ||= { n: 0, net: 0 }); agg[k].n++; agg[k].net += m.net;
     }
   }
   const mistakes = Object.entries(agg).sort((a, b) => (b[1].n > 0) - (a[1].n > 0) || a[1].net - b[1].net);
-  const clean = closed.filter(({ t }) => !t.imported && g.perTrade[t.id]?.clean);
-  const dirty = closed.filter(({ t }) => !t.imported && !g.perTrade[t.id]?.clean);
+  const isImp = (t) => legsOf(t).every((l) => l.imported);
+  const isClean = (t) => legsOf(t).every((l) => g.perTrade[l.id]?.clean);
+  const clean = closed.filter(({ t }) => !isImp(t) && isClean(t));
+  const dirty = closed.filter(({ t }) => !isImp(t) && !isClean(t));
   const grp = (list) => ({ n: list.length, net: sum(list.map((x) => x.m.net)), wr: list.length ? list.filter((x) => x.m.net > 0).length / list.length : null, r: (() => { const rs = list.map((x) => x.m.r).filter((v) => v != null); return rs.length ? sum(rs) / rs.length : null; })() });
   const C = grp(clean); const D = grp(dirty);
 
@@ -1021,7 +1047,7 @@ function renderDrawer() {
   const checkList = (items) => items.filter((c) => c.xp || c.disc).map((c) => `<div class="check ${c.xp > 0 || (c.ok && c.disc) ? 'ok' : c.xp < 0 || (c.disc && !c.ok) ? 'bad' : ''}"><span class="ic">${c.ok ? '✓' : '✕'}</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('');
   $('#drawer-root').innerHTML = `<div class="drawer-ov" data-action="close-drawer"></div><aside class="drawer">
     <div class="sec row" style="justify-content:space-between">
-      <div><div class="row"><span class="sym" style="font-size:20px">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span><span class="side ${t.side}">${t.side}</span>${horizonPill(t)}${t.status === 'OPEN' ? '<span class="pill violet">open</span>' : isLT(t) ? '<span class="pill">sold</span>' : pt.clean ? '<span class="pill green">clean trade</span>' : '<span class="pill red">rule broken</span>'}</div>
+      <div><div class="row"><span class="sym" style="font-size:20px">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span><span class="side ${t.side}">${t.side}</span>${horizonPill(t)}${linkPill(t)}${t.status === 'OPEN' ? '<span class="pill violet">open</span>' : t.imported ? '<span class="pill">imported</span>' : isLT(t) ? '<span class="pill">sold</span>' : pt.clean ? '<span class="pill green">clean trade</span>' : '<span class="pill red">rule broken</span>'}</div>
         <div class="muted" style="margin-top:4px;font-size:12.5px">${fmtDT(t.entryTime)}${t.exitTime && t.status === 'CLOSED' ? ' → ' + fmtDT(t.exitTime) : ''} · ${hold(m.holdDays)}</div></div>
       <button class="btn ghost sm" data-action="close-drawer">✕</button>
     </div>
@@ -1055,6 +1081,18 @@ function renderDrawer() {
     ${t.lessons ? `<div class="sec"><div class="label">Lesson</div><div class="prose" style="margin-top:6px">${esc(t.lessons)}</div></div>` : ''}
     ${t.screenshotUrl ? `<div class="sec"><a class="link" href="${esc(t.screenshotUrl)}" target="_blank" rel="noopener">📈 Open chart ↗</a></div>` : ''}
     ${t.stopHistory?.length ? `<div class="sec"><div class="label">Stop moves</div>${t.stopHistory.map((h) => `<div class="stat-line"><span class="muted">${fmtDT(h.at)}</span><b>${price(h.from)} → ${price(h.to)}</b></div>`).join('')}</div>` : ''}
+    ${(() => {
+      const g = groupOf(t); if (!g) return '';
+      const legs = legsOfGroup(g.id);
+      const nets = legs.map((l) => metrics(l, l.status === 'OPEN' ? ltpFor(l) : null).net);
+      const total = nets.every((v) => v != null) ? sum(nets) : null;
+      const allClosed = legs.every((l) => l.status === 'CLOSED');
+      return `<div class="sec"><div class="row" style="justify-content:space-between"><div class="label">🔗 Linked position · ${esc(g.name)}</div>
+        <span class="row"><button class="btn ghost sm" data-action="rename-group" data-gid="${g.id}">Rename</button><button class="btn ghost sm" data-action="unlink-trade" data-id="${t.id}">Unlink this leg</button><button class="btn ghost sm" data-action="delete-group" data-gid="${g.id}">Unlink all</button></span></div>
+        <div class="table-wrap" style="margin-top:8px"><table class="tbl"><tbody>${legs.map((l, k) => `<tr class="click ${l.id === t.id ? 'selected' : ''}" data-action="open-drawer" data-id="${l.id}"><td><span class="sym">${esc(l.symbol)}</span></td><td><span class="side ${l.side}">${l.side}</span></td><td class="r num">${nf0.format(l.qty)}</td><td class="r num ${cls(nets[k])}">${nets[k] == null ? '—' : money(nets[k], { sign: true, dp: 0 })}${l.status === 'OPEN' ? ' <span class="faint">·u</span>' : ''}</td></tr>`).join('')}</tbody></table></div>
+        <div class="stat-line" style="margin-top:6px"><span class="muted">Combined ${allClosed ? 'net P&L' : 'P&L (incl. unrealised)'}</span><b class="${cls(total)}">${total == null ? '—' : money(total, { sign: true })}</b></div>
+        <p class="faint" style="font-size:11.5px;margin:4px 0 0">Counts as one trade in stats${allClosed ? '' : ' once every leg is closed'}.</p></div>`;
+    })()}
     ${t.imported ? '<div class="sec"><div class="note">Imported from your Zerodha tradebook. It counts in P&L, stats and charts, but doesn\'t earn or lose XP — XP is for journaling as you trade. Add notes freely.</div></div>' : ''}
     <div class="sec ${t.imported ? 'hidden' : ''}"><div class="label">XP breakdown</div><div class="checklist" style="margin-top:8px">${checkList(pt.entry)}${checkList(pt.exit)}${(pt.penalties || []).map((c) => `<div class="check bad"><span class="ic">✕</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}</div></div>
     <div class="sec row wrap">
@@ -1184,6 +1222,29 @@ async function applyImport() {
     await reload({ celebrate: true });
     toast(`<div class="t-h">⬆ Tradebook imported</div><div class="muted" style="font-size:12px;margin-top:4px">${res.created} trades added · ${res.updated} entry dates fixed · ${res.closed} closed${res.removed ? ` · ${res.removed} re-paired` : ''}</div>`);
   } catch (e) { $('#tb-err').textContent = e.message; if (btn) btn.disabled = false; }
+}
+
+function openLinkModal(ids) {
+  const legs = ids.map(findTrade).filter(Boolean);
+  const already = legs.filter((l) => l.groupId);
+  const form = openModal(`<form class="modal narrow" id="link-form">
+    <div class="modal-h"><h2>🔗 Link as one position</h2><button type="button" class="btn ghost sm" data-action="close-modal">✕</button></div>
+    <div class="modal-b stack">
+      <div class="table-wrap"><table class="tbl"><tbody>${legs.map((l) => { const n = metrics(l, l.status === 'OPEN' ? ltpFor(l) : null).net; return `<tr><td><span class="sym">${esc(l.symbol)}</span></td><td><span class="side ${l.side}">${l.side}</span></td><td class="r num">${nf0.format(l.qty)}</td><td class="r num ${cls(n)}">${n == null ? '—' : money(n, { sign: true, dp: 0 })}</td></tr>`; }).join('')}</tbody></table></div>
+      <div class="field"><label>Name</label><input class="input" name="name" value="${esc(suggestGroupName(legs))}" maxlength="80"></div>
+      <div class="field"><label>Note (optional)</label><input class="input" name="note" placeholder="Bull call spread, hedged with puts…"></div>
+      ${already.length ? `<div class="note">${already.length} of these trades ${already.length > 1 ? 'are' : 'is'} already linked elsewhere — ${already.length > 1 ? 'they' : 'it'} will move to this group.</div>` : ''}
+      <p class="faint" style="font-size:12px;margin:0">In stats (win rate, best/worst trade, R, equity curve, Insights) linked legs count as one trade, booked when the last leg closes. Each leg keeps its own XP.</p>
+      <div class="err" id="link-err"></div>
+    </div>
+    <div class="modal-f"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Link ${legs.length} trades</button></div></form>`);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/groups', { method: 'POST', body: { tradeIds: ids, name: form.name.value, note: form.note.value } });
+      closeModal(); S.sel.clear(); await reload(); toast('🔗 Linked — they now count as one position in your stats');
+    } catch (err) { $('#link-err').textContent = err.message; }
+  });
 }
 
 async function openSync() {
@@ -1348,6 +1409,19 @@ const actions = {
   'kite-logout': async () => { await api('/api/kite/logout', { method: 'POST' }); await loadKite(); render(); toast('Disconnected from Kite'); },
   'kite-fills': () => openFills(),
   'tradebook-import': () => openTradebookImport(),
+  'link-selected': () => openLinkModal([...S.sel]),
+  'clear-sel': () => { S.sel.clear(); render(); },
+  'unlink-trade': async (el) => { await api(`/api/trades/${el.dataset.id}/group`, { method: 'DELETE' }); await reload(); toast('Leg unlinked'); },
+  'delete-group': async (el) => {
+    if (!(await confirmBox('Unlink all legs?', 'They go back to counting as separate trades in your stats. Nothing else changes.', 'Unlink all'))) return;
+    await api(`/api/groups/${el.dataset.gid}`, { method: 'DELETE' }); await reload(); toast('Unlinked');
+  },
+  'rename-group': async (el) => {
+    const g = (S.state.groups || []).find((x) => x.id === el.dataset.gid); if (!g) return;
+    const form = openModal(`<form class="modal narrow"><div class="modal-h"><h2>Rename linked position</h2></div><div class="modal-b"><input class="input" name="name" value="${esc(g.name)}" maxlength="80"></div><div class="modal-f"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`);
+    form.addEventListener('submit', async (e) => { e.preventDefault(); await api(`/api/groups/${g.id}`, { method: 'PUT', body: { name: form.name.value } }); closeModal(); await reload(); });
+    setTimeout(() => form.name.select(), 30);
+  },
   'tradebook-apply': () => applyImport(),
   'kite-sync': () => openSync(),
   'sync-log': (el) => {
@@ -1384,6 +1458,7 @@ function bindGlobal() {
   document.addEventListener('click', (e) => {
     const ov = e.target.closest('.overlay');
     if (ov && e.target === ov && ov.hasAttribute('data-dismiss')) return closeModal();
+    if (e.target.closest('[data-stop]')) { const cb = e.target.closest('[data-stop]').querySelector('input'); if (cb && e.target !== cb) cb.click(); return; }
     const el = e.target.closest('[data-action]');
     if (el && actions[el.dataset.action]) { if (el.tagName === 'BUTTON' && el.type !== 'submit') e.preventDefault(); actions[el.dataset.action](el, e); }
   });
@@ -1397,6 +1472,16 @@ function bindGlobal() {
   // Journal filters
   document.addEventListener('input', (e) => {
     if (e.target.hasAttribute?.('data-action-view')) { S.view = e.target.value; render(); return; }
+    if (e.target.dataset?.sel) {
+      const id = e.target.dataset.sel; e.target.checked ? S.sel.add(id) : S.sel.delete(id);
+      e.target.closest('tr')?.classList.toggle('selected', e.target.checked);
+      const b = $('#sel-bar'); if (b) b.innerHTML = selBar(); return;
+    }
+    if (e.target.hasAttribute?.('data-sel-all')) {
+      for (const t of filteredTrades()) e.target.checked ? S.sel.add(t.id) : S.sel.delete(t.id);
+      const jb = $('#journal-body'); if (jb) jb.innerHTML = journalRows();
+      const b = $('#sel-bar'); if (b) b.innerHTML = selBar(); return;
+    }
     if (e.target.dataset?.tbAll) { $$(`[data-tb="${e.target.dataset.tbAll}"]`).forEach((x) => { x.checked = e.target.checked; }); return; }
     const iv = e.target.dataset?.actionIv; const emaN = e.target.dataset?.actionEma;
     if (iv || emaN) {
@@ -1438,7 +1523,7 @@ async function boot() {
     $('#main').innerHTML = `<div class="card empty"><div class="big">⚠️</div><h2>Can't reach the TradeQuest server</h2><p>${esc(e.message)}. Is <code>npm start</code> running?</p></div>`;
     return;
   }
-  S.game = computeGame(S.state); S.stats = computeStats(S.state.trades.filter(isTrading));
+  S.game = computeGame(S.state); S.stats = computeStats(S.state.trades.filter(isTrading), S.state.groups);
   loadPortfolio().then(() => render());
   const { params } = route();
   if (params.get('kite') === 'ok') { toast(`<div class="t-h">⚡ Kite connected</div><div class="muted" style="font-size:12px;margin-top:4px">Live prices are on until ~6 AM tomorrow.</div>`); history.replaceState(null, '', '#/settings'); }

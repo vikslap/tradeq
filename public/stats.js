@@ -2,11 +2,46 @@ import { metrics, dayKey } from './game.js';
 
 const sum = (a) => a.reduce((s, x) => s + x, 0);
 
-export function computeStats(trades) {
-  const closed = trades
-    .filter((t) => t.status === 'CLOSED' && t.exitTime)
-    .map((t) => ({ t, m: metrics(t) }))
-    .sort((a, b) => new Date(a.t.exitTime) - new Date(b.t.exitTime));
+/**
+ * Closed "units" for statistics. A linked group (pair, spread, hedge) counts as ONE
+ * unit once every leg is closed: net = sum of legs, R = net ÷ summed initial risk,
+ * booked on the last leg's exit. Until then its legs stay out of closed stats.
+ * If only some legs are in `trades` (e.g. filtered by type), those legs count alone.
+ */
+export function closedUnits(trades, groups = []) {
+  const byGroup = {};
+  for (const t of trades) if (t.groupId) (byGroup[t.groupId] ||= []).push(t);
+  // A group only acts as a unit when at least two of its legs are in view.
+  const groupName = Object.fromEntries(groups.filter((g) => (byGroup[g.id] || []).length >= 2).map((g) => [g.id, g.name]));
+  const legCount = {};
+  for (const t of trades) if (t.groupId) legCount[t.groupId] = (legCount[t.groupId] || 0) + 1;
+  const units = [];
+  for (const t of trades) {
+    if (t.groupId && groupName[t.groupId]) continue;
+    if (t.status === 'CLOSED' && t.exitTime) units.push({ t, m: metrics(t) });
+  }
+  for (const [gid, legs] of Object.entries(byGroup)) {
+    if (!groupName[gid]) continue;
+    if (!legs.every((t) => t.status === 'CLOSED' && t.exitTime)) continue;
+    const ms = legs.map((t) => metrics(t));
+    const net = sum(ms.map((m) => m.net));
+    const risks = ms.map((m) => m.riskAmt);
+    const risk = risks.every((r) => r > 0) ? sum(risks) : null;
+    const entryTime = legs.map((t) => t.entryTime).sort()[0];
+    const exitTime = legs.map((t) => t.exitTime).sort().at(-1);
+    const lead = [...legs].sort((a, b) => a.entryTime.localeCompare(b.entryTime))[0];
+    const t = {
+      ...lead, id: `grp:${gid}`, groupUnit: true, legs, symbol: groupName[gid], side: 'PAIR',
+      qty: null, entryTime, exitTime, status: 'CLOSED', exitReason: legs.map((x) => x.exitReason).find(Boolean) || lead.exitReason,
+    };
+    const holdDays = (new Date(exitTime) - new Date(entryTime)) / 86400000;
+    units.push({ t, m: { net, gross: sum(ms.map((m) => m.gross)), r: risk ? net / risk : null, riskAmt: risk, holdDays, value: sum(ms.map((m) => m.value)), closed: true } });
+  }
+  return units.sort((a, b) => new Date(a.t.exitTime) - new Date(b.t.exitTime));
+}
+
+export function computeStats(trades, groups = []) {
+  const closed = closedUnits(trades, groups);
   const wins = closed.filter((x) => x.m.net > 0);
   const losses = closed.filter((x) => x.m.net < 0);
   const net = sum(closed.map((x) => x.m.net));

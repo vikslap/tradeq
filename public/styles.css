@@ -415,3 +415,5 @@ form[data-horizon="LONGTERM"] span.lt-only { display: inline !important; }
 
 .lt-sum { white-space: normal; text-align: right; line-height: 1.5; }
 #lt-card .card-h { align-items: flex-start; flex-wrap: wrap; }
+
+.tbl tr.selected td { background: var(--accent-soft); }

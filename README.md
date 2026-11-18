@@ -69,6 +69,14 @@ The import pairs buys and sells into complete trades. Adding to a position count
 
 Imported trades count in your P&L, equity curve and Insights, but **don't earn or lose XP**. XP is for journaling as you trade.
 
+## Linked positions (pairs, spreads, hedges)
+
+In **Journal**, tick two or more trades and click **🔗 Link as one position**. It suggests a name such as *NIFTY 26N17 23400/23600 CE*, which you can change.
+
+- In **stats** (win rate, best/worst trade, average R, expectancy, Insights, equity curve and drawdown), the legs count as **one trade**. Net P&L is the sum of the legs and R is measured against their combined initial risk. The result is booked on the day the **last** leg closes, and until every leg is closed the position stays out of closed-trade stats.
+- Each leg keeps its own record, chart and XP.
+- A trade's side panel shows the other legs and the combined P&L, with **Rename**, **Unlink this leg** and **Unlink all**.
+
 ## Trade types and long-term investments
 
 Every entry has a **type**: Intraday, Swing, Positional or Long-term. Trades logged before types existed were tagged automatically: same-day trades as Intraday, up to 20 days as Swing, longer as Positional. You can change any of them.

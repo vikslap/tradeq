@@ -75,3 +75,15 @@ test('tradebook import only removes imported trades, never journaled ones', () =
   assert.equal(res.removed, 1);
   assert.ok(store.getState().trades.some((t) => t.id === mine.id));
 });
+
+test('groups: link, relink moves a leg, unlink prunes groups under 2 legs', () => {
+  const a = store.createTrade(t0); const b = store.createTrade(t0); const c = store.createTrade(t0);
+  const g1 = store.createGroup({ tradeIds: [a.id, b.id], name: 'Pair' });
+  assert.equal(store.getState().trades.find((t) => t.id === a.id).groupId, g1.id);
+  const g2 = store.createGroup({ tradeIds: [b.id, c.id] });    // b moves → g1 left with one leg → pruned
+  assert.ok(!store.getState().groups.some((g) => g.id === g1.id));
+  assert.equal(store.getState().trades.find((t) => t.id === a.id).groupId, undefined);
+  store.unlinkTrade(c.id);                                    // g2 left with one leg → pruned
+  assert.ok(!store.getState().groups.some((g) => g.id === g2.id));
+  assert.throws(() => store.createGroup({ tradeIds: [a.id] }), /two trades/);
+});

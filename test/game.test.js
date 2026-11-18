@@ -176,3 +176,19 @@ test('backdated long-term holdings are not instantly overdue; CAGR/XIRR wait a y
   assert.equal(inv.unpriced, 1);
   assert.ok(Math.abs(inv.value - (228.75 * 50 + 95.88 * 500)) < 1e-6); // unpriced counted at cost
 });
+
+test('linked legs count as one unit in stats (best trade, win rate, curve)', async () => {
+  const { computeStats } = await import('../public/stats.js');
+  const leg = (id, side, entry, exit, day) => base({ id, symbol: id, side, qty: 65, entryPrice: entry, initialStop: null, stopLoss: null, groupId: 'G',
+    entryTime: '2026-10-23T05:00:00.000Z', status: 'CLOSED', exitPrice: exit, exitTime: `2026-11-${day}T05:00:00.000Z` });
+  const legs = [leg('L', 'LONG', 103.9, 1805.3, 10), leg('S', 'SHORT', 126, 1918.3, 12)];
+  const other = base({ id: 'o', status: 'CLOSED', exitPrice: 420, exitTime: '2026-11-05T05:00:00.000Z' });
+  const st = computeStats([...legs, other], [{ id: 'G', name: 'NIFTY spread' }]);
+  assert.equal(st.count, 2);
+  assert.equal(st.best.t.id, 'o');                 // the +₹1.1L long leg no longer wins "best trade"
+  assert.equal(st.worst.t.symbol, 'NIFTY spread');
+  assert.ok(Math.abs(st.worst.m.net - ((1805.3 - 103.9) - (1918.3 - 126)) * 65) < 1e-6);
+  assert.ok(st.maxDD < 6000);                      // booked on the last leg's day, no ₹1L+ swing
+  const open = computeStats([legs[0], { ...legs[1], status: 'OPEN', exitPrice: null, exitTime: null }], [{ id: 'G', name: 'x' }]);
+  assert.equal(open.count, 0);                     // half-closed group stays out of closed stats
+});
