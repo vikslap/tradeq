@@ -1,5 +1,6 @@
 // 🎮 Practice — chart replay game on real Kite candles.
 // Paper trades live in their own record (state.practice) and never touch the journal.
+import { attachDrawings, drawToolbar } from './drawing.js';
 import { createChart, CandlestickSeries, HistogramSeries, LineSeries, LineStyle, CrosshairMode, createSeriesMarkers } from './vendor/lightweight-charts.mjs';
 
 // ---------------------------------------------------------------------------
@@ -162,8 +163,8 @@ function historyHtml(sessions) {
 
 function gameShell() {
   return `<div class="pa-grid">
-    <section class="card" style="padding:12px"><div class="row" style="justify-content:space-between;margin-bottom:8px">
-      <div class="row"><b id="pa-title"></b><span class="pill" id="pa-iv"></span></div><span class="muted mono" id="pa-date"></span></div>
+    <section class="card" style="padding:12px" data-chart-wrap><div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <div class="row"><b id="pa-title"></b><span class="pill" id="pa-iv"></span>${drawToolbar()}</div><span class="muted mono" id="pa-date"></span></div>
       <div id="pa-chart" style="height:520px"></div>
       <div class="row wrap" style="margin-top:10px;gap:8px">
         <button class="btn" data-pa="next">▶ Next bar <span class="faint">(→)</span></button>
@@ -232,7 +233,7 @@ async function resume(id, review = false) {
 
 // ---------- chart ----------
 function buildChart() {
-  G.chart?.remove();
+  G.draw?.destroy(); G.chart?.remove();
   const el = document.getElementById('pa-chart');
   const C = { text: css('--muted'), border: css('--border'), green: css('--green'), red: css('--red'), accent: css('--accent'), gold: css('--gold') };
   const blind = G.session.blind && G.session.status === 'active';
@@ -256,6 +257,9 @@ function buildChart() {
   G.vol.setData(vis.map(volBar));
   for (const e of G.ema) e.s.setData(emaData(vis, e.n));
   G.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, vis.length - 120), to: vis.length + 12 });
+  el.style.position = 'relative';
+  G.draw = attachDrawings({ chart: G.chart, series: G.series, host: el, key: `pa:${G.session.id}`,
+    times: () => G.data.candles.slice(0, G.cursor + 1).map((c) => c[0]), candles: () => G.data.candles.slice(0, G.cursor + 1) });
 }
 const bar = (c) => ({ time: toTime(c[0], G.data.interval), open: c[1], high: c[2], low: c[3], close: c[4] });
 const volBar = (c) => ({ time: toTime(c[0], G.data.interval), value: c[5] || 0, color: c[4] >= c[1] ? 'rgba(34,197,94,.35)' : 'rgba(244,80,107,.35)' });
@@ -317,6 +321,7 @@ function next(n = 1) {
     }
   }
   refreshOverlays(); paint(); save();
+  G?.draw?.redraw();
 }
 
 let saveTimer = null;
@@ -345,7 +350,7 @@ async function endSession() {
     G.position = null;
   }
   const s = await ctx.api(`/api/practice/sessions/${G.session.id}`, { method: 'PUT', body: { cursor: G.cursor, trades: G.trades, position: null, status: 'done' } });
-  const done = G; G = null;
+  const done = G; done.draw?.destroy(); G = null;
   await ctx.reload();
   openReview(s, done.data);
 }
@@ -479,7 +484,7 @@ function openReview(s, data) {
   const el = ctx.openModal(`<div class="modal" style="width:min(1200px,100%)"><div class="modal-h"><h2>🏁 ${ctx.esc(s.symbol)} <span class="pill">${IV_LABEL[s.interval]}</span> <span class="faint" style="font-size:13px;font-weight:500">${first ? fmtBar(first[0], s.interval) : ''} → ${last ? fmtBar(last[0], s.interval) : ''}</span></h2><button class="btn ghost sm" data-action="close-modal">✕</button></div>
     <div class="modal-b"><div class="kpis" style="margin-bottom:12px;grid-template-columns:repeat(4,1fr)">
       ${[['Trades', res.length], ['P&L', `<span class="${cls(pnl)}">${money(pnl)}</span>`], ['Total R', `<span class="${cls(tr)}">${rfmt(tr)}</span>`], ['Practice XP', `<span class="gold">${xp > 0 ? '+' : ''}${xp}</span>`]].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
-      <div id="pa-review-chart" style="height:440px"></div>
+      <div data-chart-wrap><div class="row" style="margin-bottom:6px">${drawToolbar()}<span class="faint" style="font-size:12px">Shift+click to measure</span></div><div id="pa-review-chart" style="height:440px;position:relative"></div></div>
       ${res.length ? `<div class="table-wrap" style="margin-top:12px"><table class="tbl"><tbody>${res.map((x) => `<tr><td><span class="side ${x.t.side}">${x.t.side}</span></td><td class="num">${nf0.format(x.t.qty)} @ ${nf2.format(x.t.entryPrice)} → ${nf2.format(x.t.exitPrice)}</td><td class="faint">${ctx.esc(x.t.exitReason)}</td><td class="r num ${cls(x.pnl)}">${money(x.pnl)}</td><td class="r num ${cls(x.r)}">${rfmt(x.r)}</td><td class="faint" style="white-space:normal;font-size:12px">${x.items.map((i) => `${i.xp > 0 ? '+' : ''}${i.xp} ${ctx.esc(i.label)}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-sm">No trades taken — sometimes the best trade is none.</div>'}
     </div></div>`, { dismissable: true });
   // Full chart including what happened after you stopped.
@@ -497,4 +502,5 @@ function openReview(s, data) {
   marks.sort((a, b) => (a.time > b.time ? 1 : a.time < b.time ? -1 : 0));
   createSeriesMarkers(ser, marks);
   chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, s.startIndex - 60), to: Math.min(data.candles.length, (s.cursor ?? s.startIndex) + 40) });
+  attachDrawings({ chart, series: ser, host: el.querySelector('#pa-review-chart'), key: `pa:${s.id}`, times: () => data.candles.map((c) => c[0]), candles: () => data.candles });
 }

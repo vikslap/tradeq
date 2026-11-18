@@ -1,4 +1,5 @@
 // Interactive trade chart built on TradingView Lightweight Charts (Apache-2.0, vendored).
+import { attachDrawings } from './drawing.js';
 import { createChart, CandlestickSeries, HistogramSeries, LineSeries, BaselineSeries, LineStyle, LineType, CrosshairMode, createSeriesMarkers } from './vendor/lightweight-charts.mjs';
 
 const IST = 19800; // seconds
@@ -150,8 +151,11 @@ export function mountTradeChart(container, t, { candles, interval }, opts = {}) 
   const pad = Math.max(8, Math.round((iX - iE) * 0.6));
   chart.timeScale().setVisibleLogicalRange({ from: Math.max(-2, iE - pad), to: Math.min(data.length + 3, iX + pad) });
 
+  const times = candles.map((c) => c[0]);
+  const draw = opts.drawKey ? attachDrawings({ chart, series: price, host: el, times: () => times, candles: () => candles, key: opts.drawKey }) : null;
+
   return {
-    el, chart,
+    el, chart, draw,
     /** Nudge the last candle with a live price (open trades). */
     setLive(p) {
       if (p == null || !data.length) return;
@@ -159,7 +163,7 @@ export function mountTradeChart(container, t, { candles, interval }, opts = {}) 
       last.close = p; last.high = Math.max(last.high, p); last.low = Math.min(last.low, p);
       price.update(last);
     },
-    destroy() { chart.remove(); },
+    destroy() { draw?.destroy(); chart.remove(); },
   };
 }
 

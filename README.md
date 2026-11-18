@@ -35,6 +35,12 @@ Kite sessions expire around 6 AM every day, so connect once each morning. Your A
 - Live MTM, R-multiple and day change for open positions, refreshed every 5 seconds.
 - **Today's Kite fills**: turn an executed order into a journal entry, or use it as the exit of a matching open trade.
 - **Interactive trade charts**: every trade opens on a zoomable, scrollable candlestick chart, powered by TradingView's open-source [Lightweight Charts](https://github.com/tradingview/lightweight-charts) and bundled in `public/vendor`. It shows an OHLC readout under the crosshair, volume, and optional EMA 20/50/200. Entry, stop, target and exit are drawn as labelled lines. Your stop is plotted **as it moved over time** (a stepped line with a marker at each trail), and the time you were in the trade is shaded. You can switch candles (5m / 15m / 1h / 1D / 1W) or click **Expand** for a full-screen view. Open trades update live. Charts of closed trades are saved on your PC, so they load instantly and work offline.
+- **Drawing tools** on every chart (trade charts, full screen, Practice and its review):
+  - **╱ Trend**: two clicks. Points snap to the nearest candle open, high, low or close.
+  - **─ Level**: a horizontal line in one click.
+  - **📏 Ruler**: two clicks, or **Shift+click** anywhere. It shows the price change, %, bars and time between the points.
+  - Click a drawing to select it, drag its ends to adjust, and press **Delete** to remove it. **Esc** cancels, and 🗑 clears the chart.
+  - Drawings are anchored to time and price, so they stay put when you change candle size. They're saved per trade (and per practice session) in your browser.
 - **Best / worst price from candles**: the chart also records the best and worst price each trade reached, even if the app wasn't open. That lets the *winner turned into a loss* check catch trades that went +1R and then closed red.
 - **Sync with Kite**: compares your open journal trades with your Kite holdings and positions. It flags positions **not in the journal** (one-click *Log trade*), positions **closed at Kite** but still open in the journal (one-click *Close*, with the exit price filled in), and **quantity differences**. The dashboard shows *✓ Matches Kite* or *⚠ N out of sync*, and adds a *Books match Kite* quest.
 

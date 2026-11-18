@@ -2,6 +2,7 @@ import { computeGame, metrics, entryChecks, exitChecks, dayKey, tradeKey, weekSt
 import { computeStats, groupBy, rHistogram, investmentStats } from './stats.js';
 import { reconcile } from './sync.js';
 import { mountTradeChart, mountEquityChart, INTERVAL_LABEL } from './tradechart.js';
+import { drawToolbar, handleDrawClick } from './drawing.js';
 import { parseTradebook, planImport } from './tradebook.js';
 import { initPractice, pagePractice, mountPractice, practiceAction, practiceKey } from './practice.js';
 
@@ -674,7 +675,7 @@ function openModal(html, { dismissable = false } = {}) {
   root.innerHTML = `<div class="overlay" ${dismissable ? 'data-dismiss' : ''}>${html}</div>`;
   return root.firstElementChild.firstElementChild;
 }
-function closeModal() { S.big?.inst?.destroy(); S.big = null; $('#modal-root').innerHTML = ''; }
+function closeModal() { const hadBig = Boolean(S.big); S.big?.inst?.destroy(); S.big = null; $('#modal-root').innerHTML = ''; if (hadBig) S.cv?.inst?.draw?.reload(); }
 
 function confirmBox(title, body, okLabel = 'Confirm') {
   return new Promise((resolve) => {
@@ -997,6 +998,7 @@ function chartToolbar(t, iv, def) {
   return `<div class="chart-bar">
     <div class="seg sm-seg">${Object.entries(INTERVAL_LABEL).map(([v, l]) => `<label><input type="radio" name="iv-${t.id}" data-action-iv="${v}" ${cur === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
     <div class="chips">${[20, 50, 200].map((n) => `<label><input type="checkbox" data-action-ema="${n}" ${S.emas.includes(n) ? 'checked' : ''}><span class="ema-chip ema-${n}">EMA ${n}</span></label>`).join('')}</div>
+    ${drawToolbar()}
     <span style="flex:1"></span>
     <button class="btn ghost sm" data-action="chart-expand" data-id="${t.id}" title="Full screen">⛶ Expand</button>
   </div>`;
@@ -1009,7 +1011,7 @@ async function mountDrawerChart(t) {
   const key = `${dataKey(t, iv)}|${theme()}|${S.emas.join(',')}`;
   if (S.cv?.tradeId === t.id && S.cv.key === key) { slot.replaceWith(S.cv.wrap); return; }
   if (S.cv) { S.cv.inst?.destroy(); S.cv = null; }
-  const wrap = document.createElement('div'); wrap.id = 'trade-chart';
+  const wrap = document.createElement('div'); wrap.id = 'trade-chart'; wrap.dataset.chartWrap = '1';
   wrap.innerHTML = `<div class="chart-loading">${S.kite.connected || t.status === 'CLOSED' ? 'Loading chart…' : 'Connect Kite to see this trade on a chart.'}</div>`;
   slot.replaceWith(wrap);
   const cv = { tradeId: t.id, key, wrap, inst: null };
@@ -1020,7 +1022,7 @@ async function mountDrawerChart(t) {
     if (S.cv !== cv) return;
     if (!data.candles?.length) { wrap.innerHTML = '<div class="chart-loading">No candles for this period.</div>'; return; }
     wrap.innerHTML = `${chartToolbar(t, iv, data.interval)}<div class="chart-host"></div>${S.kite.mock ? '<div class="faint" style="font-size:11px;margin-top:4px">Demo data</div>' : ''}`;
-    cv.inst = mountTradeChart($('.chart-host', wrap), t, data, { height: 330, emas: S.emas });
+    cv.inst = mountTradeChart($('.chart-host', wrap), t, data, { height: 330, emas: S.emas, drawKey: `trade:${t.id}` });
     const ltp = t.status === 'OPEN' ? ltpFor(t) : null; if (ltp) cv.inst.setLive(ltp);
   } catch (e) {
     if (S.cv === cv) wrap.innerHTML = `<div class="chart-loading">${esc(e.code === 'TOKEN' ? 'Connect Kite to load this chart.' : e.message)}</div>`;
@@ -1030,12 +1032,12 @@ async function mountDrawerChart(t) {
 async function openBigChart(t) {
   const iv = S.chartIv[t.id];
   const el = openModal(`<div class="modal" style="width:min(1400px,100%)"><div class="modal-h"><h2>${esc(t.symbol)} <span class="exch">${t.exchange}</span> <span class="side ${t.side}">${t.side}</span> ${horizonPill(t)}</h2><button class="btn ghost sm" data-action="close-modal">✕</button></div>
-    <div class="modal-b" id="big-chart"><div class="chart-loading" style="height:70vh">Loading chart…</div></div></div>`, { dismissable: true });
+    <div class="modal-b" id="big-chart" data-chart-wrap><div class="chart-loading" style="height:70vh">Loading chart…</div></div></div>`, { dismissable: true });
   try {
     const data = await chartData(t, iv);
     const box = $('#big-chart', el); if (!box) return;
     box.innerHTML = `${chartToolbar(t, iv, data.interval).replace('data-action="chart-expand"', 'data-action="close-modal"').replace('⛶ Expand', '✕ Close')}<div class="chart-host"></div>`;
-    S.big = { tradeId: t.id, inst: mountTradeChart($('.chart-host', box), t, data, { height: Math.round(window.innerHeight * 0.72), emas: S.emas }) };
+    S.big = { tradeId: t.id, inst: mountTradeChart($('.chart-host', box), t, data, { height: Math.round(window.innerHeight * 0.72), emas: S.emas, drawKey: `trade:${t.id}` }) };
   } catch (e) { const box = $('#big-chart', el); if (box) box.innerHTML = `<div class="warn">${esc(e.message)}</div>`; }
 }
 
@@ -1460,6 +1462,8 @@ function bindGlobal() {
   document.addEventListener('click', (e) => {
     const ov = e.target.closest('.overlay');
     if (ov && e.target === ov && ov.hasAttribute('data-dismiss')) return closeModal();
+    const db = e.target.closest('[data-draw]');
+    if (db) { e.preventDefault(); handleDrawClick(db); return; }
     const pa = e.target.closest('[data-pa]');
     if (pa) { e.preventDefault(); practiceAction(pa.dataset.pa, pa); return; }
     if (e.target.closest('[data-stop]')) { const cb = e.target.closest('[data-stop]').querySelector('input'); if (cb && e.target !== cb) cb.click(); return; }
