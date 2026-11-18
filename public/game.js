@@ -45,10 +45,39 @@ export function isRevenge(t, trades, windowMins) {
   });
 }
 
-export function entryChecks(t, { settings, trades, dayIndex }) {
+export const RULE_DEFAULTS = {
+  capital: 100000, maxRiskPerTrade: 2000, maxTradesPerDay: 3, revengeWindowMins: 30,
+  maxDailyLoss: 4000, maxPortfolioHeatPct: 6, maxPositionPct: 30, chaseTolerancePct: 1,
+};
+
+/** Every mistake the engine can detect, with a short name (used by Insights & the rulebook). */
+export const MISTAKES = {
+  stop: 'No stop-loss at entry', risk: 'Oversized risk per trade', impulse: 'Impulse trade (no setup, no thesis)',
+  chase: 'Chased the entry past trigger', concentration: 'Too much capital in one stock', heat: 'Too much total open risk',
+  averageDown: 'Averaged down a loser', revenge: 'Revenge entry after a loss', overtrade: 'Over daily trade limit',
+  dailyLoss: 'Traded past daily loss limit', sizeUp: 'Sized up after losses (tilt)', plan: 'Broke the plan',
+  widen: 'Widened the stop', honour: 'Loss ran past the stop', gaveBack: 'Let a winner turn into a loss',
+  cutEarly: 'Cut a winner short', unreviewed: 'Closed without review',
+};
+
+/** Mistakes only you can see — tag them honestly when closing a trade. */
+export const MISTAKE_TAGS = {
+  chased: 'Chased / entered late', noConfirm: 'Entered before confirmation', againstTrend: 'Traded against the trend',
+  news: 'Ignored results/news risk', boredom: 'Traded out of boredom', tooBig: 'Size felt too big to sleep on',
+  early: 'Exited too early out of fear', ignoredExit: 'Ignored my exit signal', movedTarget: 'Moved my target',
+  noPlan: 'Had no exit plan',
+};
+
+const sum = (a) => a.reduce((x, y) => x + y, 0);
+
+export function entryChecks(t, { settings = {}, trades = [], dayIndex }) {
+  const s = { ...RULE_DEFAULTS, ...settings };
   const m = metrics(t);
-  const maxRisk = settings.maxRiskPerTrade || Infinity;
+  const dir = m.dir;
+  const maxRisk = s.maxRiskPerTrade || Infinity;
   const hasStop = Boolean(t.stopSetAtEntry && t.initialStop != null);
+  const at = new Date(t.entryTime).getTime();
+  const others = trades.filter((o) => o.id !== t.id && o.entryTime);
   const out = [
     rule('logged', true, 10, 0, 'Trade logged', ''),
     rule('stop', hasStop, 15, -10, 'Stop-loss set before entry', 'No stop-loss at entry', true),
@@ -56,17 +85,45 @@ export function entryChecks(t, { settings, trades, dayIndex }) {
     rule('thesis', (t.thesis || '').trim().length >= 20, 10, 0, 'Wrote a trade thesis', 'Thesis under 20 characters'),
     rule('setup', Boolean((t.setup || '').trim()), 5, 0, 'Setup tagged', 'Setup not tagged'),
   ];
+  const impulse = !(t.thesis || '').trim() && !(t.setup || '').trim();
+  out.push(rule('impulse', !impulse, 0, -10, 'Had a reason to trade', 'Impulse trade — no setup, no thesis', true));
   if (m.riskAmt != null) {
-    const ok = m.riskAmt <= maxRisk * 1.05;
-    out.push(rule('risk', ok, 10, -20, `Risk within ₹${fmt(maxRisk)} limit`, `Oversized risk (₹${fmt(m.riskAmt)} > ₹${fmt(maxRisk)})`, true));
+    out.push(rule('risk', m.riskAmt <= maxRisk * 1.05, 10, -20, `Risk within ₹${fmt(maxRisk)} limit`, `Oversized risk (₹${fmt(m.riskAmt)} > ₹${fmt(maxRisk)})`, true));
   } else {
     out.push({ id: 'risk', ok: false, xp: 0, label: 'Risk unknown (no stop)', disc: false });
   }
   out.push(rule('rr', m.plannedRR != null && m.plannedRR >= 2, 5, 0, 'Planned reward ≥ 2R', 'Planned reward below 2R'));
-  const rev = isRevenge(t, trades, settings.revengeWindowMins);
-  out.push(rule('revenge', !rev, 0, -15, 'No revenge entry', `Entered within ${settings.revengeWindowMins} min of a loss`, true));
-  const lim = settings.maxTradesPerDay || Infinity;
+  if (t.plannedEntry > 0 && t.entryPrice) {
+    const slip = ((t.entryPrice - t.plannedEntry) * dir) / t.plannedEntry;
+    out.push(rule('chase', slip <= s.chaseTolerancePct / 100, 5, -10, 'Entered at your planned trigger', `Chased entry ${(slip * 100).toFixed(1)}% past trigger`, true));
+  }
+  if (t.segment === 'EQ' && s.capital > 0 && s.maxPositionPct > 0 && m.value) {
+    const p = m.value / s.capital;
+    out.push(rule('concentration', p <= s.maxPositionPct / 100, 0, -10, 'Position size within limit', `${(p * 100).toFixed(0)}% of capital in one stock (limit ${s.maxPositionPct}%)`, true));
+  }
+  // Positions still open at the moment of this entry.
+  const openAt = others.filter((o) => new Date(o.entryTime).getTime() < at && (o.status !== 'CLOSED' || !o.exitTime || new Date(o.exitTime).getTime() > at));
+  if (s.capital > 0 && s.maxPortfolioHeatPct > 0 && m.riskAmt != null) {
+    const heat = m.riskAmt + sum(openAt.map((o) => metrics(o).riskAmt || 0));
+    out.push(rule('heat', heat <= (s.capital * s.maxPortfolioHeatPct) / 100 * 1.02, 0, -10, 'Total open risk within limit', `Total open risk ₹${fmt(heat)} > ${s.maxPortfolioHeatPct}% of capital`, true));
+  }
+  const avgDown = openAt.find((o) => o.symbol === t.symbol && o.side === t.side && (t.entryPrice - o.entryPrice) * dir < 0);
+  out.push(rule('averageDown', !avgDown, 0, -15, 'No averaging down', `Averaged down on a losing ${t.symbol} position`, true));
+  const rev = isRevenge(t, trades, s.revengeWindowMins);
+  out.push(rule('revenge', !rev, 0, -15, 'No revenge entry', `Entered within ${s.revengeWindowMins} min of a loss`, true));
+  const lim = s.maxTradesPerDay || Infinity;
   out.push(rule('overtrade', (dayIndex || 1) <= lim, 0, -10, 'Within daily trade limit', `Trade #${dayIndex} today (limit ${lim})`, true));
+  if (s.maxDailyLoss > 0 && t.entryTime) {
+    const dk = dayKey(t.entryTime);
+    const lost = sum(others.filter((o) => o.status === 'CLOSED' && o.exitTime && dayKey(o.exitTime) === dk && new Date(o.exitTime).getTime() <= at).map((o) => metrics(o).net));
+    out.push(rule('dailyLoss', lost > -s.maxDailyLoss, 0, -15, 'Under daily loss limit', `Traded after losing ₹${fmt(-lost)} today (limit ₹${fmt(s.maxDailyLoss)})`, true));
+  }
+  const prior = others.filter((o) => o.status === 'CLOSED' && o.exitTime && new Date(o.exitTime).getTime() <= at).sort((a, b) => new Date(b.exitTime) - new Date(a.exitTime));
+  const twoLosses = prior.length >= 2 && metrics(prior[0]).net < 0 && metrics(prior[1]).net < 0;
+  const risks = prior.slice(0, 10).map((o) => metrics(o).riskAmt).filter((v) => v > 0).sort((a, b) => a - b);
+  const median = risks.length ? risks[Math.floor(risks.length / 2)] : null;
+  const sizedUp = twoLosses && median && m.riskAmt != null && m.riskAmt > median * 1.3;
+  out.push(rule('sizeUp', !sizedUp, 0, -15, 'Normal size after losses', 'Sized up after back-to-back losses (tilt)', true));
   return out;
 }
 
@@ -77,6 +134,7 @@ export function exitChecks(t, m = metrics(t)) {
   if (t.followedPlan === true) out.push({ id: 'plan', ok: true, xp: 15, label: 'Followed the plan', disc: true });
   else if (t.followedPlan === false) out.push({ id: 'plan', ok: false, xp: -10, label: 'Broke the plan', disc: true });
   else out.push({ id: 'plan', ok: false, xp: 0, label: 'Plan adherence not recorded', disc: false });
+  if (!t.exitReason && t.followedPlan == null) out.push({ id: 'unreviewed', ok: false, xp: -5, label: 'Closed without reviewing the trade', disc: false });
   out.push(rule('lesson', (t.lessons || '').trim().length >= 10, 10, 0, 'Wrote a lesson', 'No lesson written'));
   const w = t.stopWidenCount || 0;
   out.push(rule('widen', w === 0, 0, -15 * Math.min(w, 3), 'Never widened the stop', `Widened the stop ${w}×`, true));
@@ -85,12 +143,27 @@ export function exitChecks(t, m = metrics(t)) {
     else if (m.r < -1.5) out.push({ id: 'honour', ok: false, xp: -20, label: `Loss ran to ${m.r.toFixed(1)}R`, disc: true });
     else out.push({ id: 'honour', ok: false, xp: 0, label: `Loss slightly past stop (${m.r.toFixed(2)}R)`, disc: true });
   }
+  if (t.mfePrice != null && m.riskPerUnit > 0 && m.net != null && m.net < 0) {
+    const mfeR = ((t.mfePrice - t.entryPrice) * m.dir) / m.riskPerUnit;
+    if (mfeR >= 1) out.push({ id: 'gaveBack', ok: false, xp: -15, label: `Let a +${mfeR.toFixed(1)}R winner turn into a loss`, disc: true });
+  }
+  if (m.net > 0 && m.r != null && m.r < 1 && t.target != null && (!t.exitReason || t.exitReason === 'Discretionary')) {
+    out.push({ id: 'cutEarly', ok: false, xp: -10, label: `Cut a winner short at ${m.r.toFixed(2)}R (discretionary exit)`, disc: true });
+  }
   if (m.net > 0 && m.r != null) {
     if (m.r >= 3) out.push({ id: 'runner', ok: true, xp: 25, label: `Let a winner run (${m.r.toFixed(1)}R)`, disc: false });
     else if (m.r >= 2) out.push({ id: 'runner', ok: true, xp: 15, label: `2R+ winner (${m.r.toFixed(1)}R)`, disc: false });
   }
+  for (const tag of t.mistakes || []) {
+    out.push({ id: 'self:' + tag, ok: false, xp: -5, label: `Self-reported: ${MISTAKE_TAGS[tag] || tag}`, disc: true, self: true });
+  }
   return out;
 }
+
+/** Name for any mistake item (auto-detected or self-reported). */
+export const mistakeName = (i) => (i.self ? `${i.label.replace('Self-reported: ', '')} (self-reported)` : MISTAKES[i.id] || i.label);
+/** Items that count as a mistake: lost XP, or a failed discipline check. */
+export const isMistake = (i) => i.xp < 0 || (i.disc && !i.ok);
 
 const fmt = (n) => Math.round(n).toLocaleString('en-IN');
 
@@ -126,6 +199,7 @@ export const BADGES = [
   { id: 'scribe', icon: '✍️', name: 'Scribe', desc: 'Write lessons on 25 trades', goal: 25, val: (c) => c.lessons },
   { id: 'mirror', icon: '🪞', name: 'Mirror Time', desc: 'Complete 4 weekly reviews', goal: 4, val: (c) => c.reviews },
   { id: 'cleanweek', icon: '🧹', name: 'Clean Sweep', desc: 'Earn 5 clean-day bonuses', goal: 5, val: (c) => c.cleanDays },
+  { id: 'honest', icon: '🔍', name: 'Honest Mirror', desc: 'Self-report 5 mistakes you made', goal: 5, val: (c) => c.selfReports },
   { id: 'patience', icon: '🧘', name: 'Patience Pays', desc: 'Hold a winner for 20+ days', goal: 1, val: (c) => c.longWins },
   { id: 'multi', icon: '🧭', name: 'Multi-Asset', desc: 'Trade 3 different segments', goal: 3, val: (c) => c.segments.size },
   { id: 'fifty', icon: '🏅', name: 'Half Century', desc: 'Log 50 trades', goal: 50, val: (c) => c.entries },
@@ -158,7 +232,7 @@ export function computeGame(state) {
   const c = {
     entries: 0, liveEntries: 0, fullPlans: 0, cleanLosses: 0, bigWinners: 0, riskStreak: 0, bestRiskStreak: 0,
     discStreak: 0, bestDiscStreak: 0, noRevengeStreak: 0, bestNoRevenge: 0, lessons: 0, reviews: 0,
-    segments: new Set(), longWins: 0, cleanDays: 0, greenMonths: 0,
+    segments: new Set(), longWins: 0, cleanDays: 0, greenMonths: 0, selfReports: 0,
   };
   const earned = {};
   const push = (at, items, ref) => {
@@ -188,6 +262,7 @@ export function computeGame(state) {
       perTrade[t.id].exit = items;
       push(ev.at, items, { key: t.id + ':out', tradeId: t.id, symbol: t.symbol });
       if ((t.lessons || '').trim().length >= 10) c.lessons++;
+      c.selfReports += (t.mistakes || []).length;
       if (m.net < 0 && m.r != null && m.r >= -1.1) c.cleanLosses++;
       if (m.r != null && m.r >= 3) c.bigWinners++;
       if (m.net > 0 && m.holdDays >= 20) c.longWins++;
@@ -201,11 +276,27 @@ export function computeGame(state) {
     checkBadges(ev.at);
   }
 
-  // Clean-day bonus: every entry that day had a stop, was within risk, not revenge, within limit.
+  // Compounding: several mistakes on one trade cost extra, and repeating a mistake
+  // made in any of your previous 5 trades costs extra again.
+  const history = [];
+  for (const t of [...trades].sort((a, b) => new Date(a.entryTime) - new Date(b.entryTime))) {
+    const pt = perTrade[t.id]; if (!pt) continue;
+    const errs = [...pt.entry, ...pt.exit].filter((i) => i.xp < 0);
+    const extra = [];
+    if (errs.length >= 2) extra.push({ id: 'stack', xp: -Math.min(40, 10 * (errs.length - 1)), label: `Mistake stack: ${errs.length} errors on one trade` });
+    const recent = new Set(history.slice(-5).flat());
+    errs.filter((e) => recent.has(e.id)).slice(0, 3).forEach((e) => extra.push({ id: 'repeat:' + e.id, xp: -5, label: `Repeat mistake: ${mistakeName(e)}` }));
+    history.push(errs.map((e) => e.id));
+    pt.penalties = extra;
+    pt.mistakes = [...pt.entry, ...pt.exit].filter(isMistake);
+    push(t.status === 'CLOSED' && t.exitTime ? t.exitTime : t.entryTime, extra, { key: t.id + ':pen', tradeId: t.id, symbol: t.symbol });
+  }
+
+  // Clean-day bonus: every entry that day passed every entry discipline check.
   const byDay = {};
   for (const t of trades) (byDay[dayKey(t.entryTime)] ||= []).push(t);
   for (const [d, list] of Object.entries(byDay)) {
-    const allOk = list.every((t) => (perTrade[t.id]?.entry || []).filter((i) => ['stop', 'risk', 'revenge', 'overtrade'].includes(i.id)).every((i) => i.ok));
+    const allOk = list.every((t) => (perTrade[t.id]?.entry || []).filter((i) => i.disc).every((i) => i.ok));
     if (allOk) {
       const at = list.map((t) => t.entryTime).sort().at(-1);
       events.push({ key: 'day:' + d, at, xp: 20, label: `Clean trading day (${d})` });

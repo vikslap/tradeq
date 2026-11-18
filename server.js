@@ -80,7 +80,9 @@ on('POST', '/api/kite/logout', async () => { await kite.logout(); return kite.st
 on('GET', '/api/kite/quote', async (req, p, res, url) => {
   const keys = [...new Set((url.searchParams.get('i') || '').split(',').map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z]+:[A-Z0-9&\-_.]+$/.test(s)))];
   if (!keys.length) throw new store.HttpError('Pass instruments as ?i=NSE:INFY,NFO:NIFTY25DECFUT');
-  return { quotes: await kite.quotes(keys) };
+  const quotes = await kite.quotes(keys);
+  store.recordExcursions(quotes);
+  return { quotes };
 });
 on('GET', '/api/kite/search', async (req, p, res, url) => ({ results: await kite.search(url.searchParams.get('q') || '') }));
 on('GET', '/api/kite/fills', async () => ({ fills: await kite.fills() }));

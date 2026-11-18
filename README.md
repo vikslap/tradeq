@@ -1,6 +1,6 @@
 # ⚔️ TradeQuest
 
-A gamified stock-trading journal for Indian markets. You can type prices in yourself, or pull **live prices from Zerodha Kite Connect**.
+A gamified stock-trading journal for Indian markets, with light and night modes. You can type prices in yourself, or pull **live prices from Zerodha Kite Connect**.
 
 The game rewards **process, not profit**. You earn XP for setting a stop before entry, keeping risk inside your limit, following your plan, honouring stops and writing lessons. You lose XP for revenge trades, oversized positions, widened stops and broken plans. A disciplined loss earns more than a lucky, oversized win.
 
@@ -52,23 +52,46 @@ Without Kite, everything works in manual mode.
 
 ## How XP works
 
+### Earn
 | Rule | XP |
 |---|---|
 | Trade logged | +10 |
-| Stop-loss set before entry | +15 / −10 |
-| Risk within your ₹ limit | +10 / −20 |
+| Stop-loss set before entry | +15 |
+| Risk within your ₹ limit | +10 |
 | Thesis (20+ chars) · target · setup tag · planned ≥ 2R | +10 · +5 · +5 · +5 |
-| Revenge entry (within N min of a loss) | −15 |
-| Over daily trade limit | −10 |
+| Entered at your planned trigger | +5 |
 | Exit reason · lesson written | +10 · +10 |
-| Followed / broke the plan | +15 / −10 |
-| Loss kept within 1R / loss ran past 1.5R | +15 / −20 |
-| Widened the stop (each, max 3) | −15 |
+| Followed the plan | +15 |
+| Loss kept within 1R | +15 |
 | 2R+ / 3R+ winner (let it run) | +15 / +25 |
 | Clean trading day | +20 |
 | Weekly review | +40 |
 
-XP is recalculated from the journal on every load. Editing or deleting a trade can't leave XP out of sync, and it can't be used to farm XP. You set the risk limit, daily trade limit and revenge window in **Settings**.
+### Lose: the mistakes it catches
+| Mistake | How it's detected | XP |
+|---|---|---|
+| No stop-loss at entry | no stop when logged | −10 |
+| Oversized risk | risk to stop > your ₹ limit | −20 |
+| Impulse trade | no setup and no thesis | −10 |
+| Chased the entry | entry beyond your planned trigger by more than the tolerance | −10 |
+| Too much capital in one stock | cash-equity position > X% of capital | −10 |
+| Too much total open risk | all open trades' risk to stop > X% of capital | −10 |
+| Averaged down | added to an open position that was losing | −15 |
+| Revenge entry | new entry within N minutes of a losing exit | −15 |
+| Over daily trade limit | more than N entries in a day | −10 |
+| Traded past daily loss limit | entry after the day's realised loss hit your limit | −15 |
+| Sized up after losses (tilt) | after 2 straight losses, risk > 1.3× your usual size | −15 |
+| Broke the plan | you answer "No" when closing | −10 |
+| Widened the stop | stop moved further away (trailing is free) | −15 each, max 3 |
+| Loss ran past the stop | loss worse than −1.5R | −20 |
+| Winner turned into a loss | was +1R or better (tracked from live prices, or entered manually), closed red | −15 |
+| Cut a winner short | discretionary exit under 1R with a target set | −10 |
+| Closed without review | no exit reason and no plan answer | −5 |
+| Self-reported mistakes | chased, ignored news, boredom, moved target… (you tick them) | −5 each |
+
+**Mistakes compound.** Two or more mistakes on one trade add a **stack penalty** of −10 for each extra mistake (max −40). Repeating any mistake from your last 5 trades costs another **−5**. Self-reported mistakes cost less than detected ones, so being honest is always cheaper. The *Honest Mirror* badge rewards it.
+
+XP is recalculated from the journal on every load. Editing or deleting a trade can't leave XP out of sync, and it can't be used to farm XP. You set every limit (risk, daily loss, open risk, position size, chase tolerance, trade count, revenge window) in **Settings**.
 
 **Discipline score** is the share of rule checks passed over your last 20 closed trades. **Clean streak** counts consecutive closed trades where every rule was kept and the plan was followed.
 

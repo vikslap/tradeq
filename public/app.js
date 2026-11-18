@@ -1,4 +1,4 @@
-import { computeGame, metrics, entryChecks, exitChecks, dayKey, tradeKey, weekStart, LEVELS, levelFor } from './game.js';
+import { computeGame, metrics, entryChecks, exitChecks, dayKey, tradeKey, weekStart, LEVELS, MISTAKES, MISTAKE_TAGS, mistakeName, isMistake } from './game.js';
 import { computeStats, groupBy, rHistogram } from './stats.js';
 
 // =====================================================================
@@ -128,6 +128,7 @@ function renderTop() {
     <span class="chip" title="Rule checks passed over your last ${g.disciplineSample} closed trades">🧭 Discipline ${g.discipline == null ? '—' : g.discipline + '%'}</span>
     <div class="top-spacer"></div>
     ${kiteChip}
+    <button class="btn ghost sm theme-btn" data-action="toggle-theme" title="Switch to ${document.documentElement.dataset.theme === 'light' ? 'night' : 'light'} mode">${document.documentElement.dataset.theme === 'light' ? '🌙' : '☀️'}</button>
     <button class="btn primary" data-action="new-trade">＋ New trade</button>`;
 }
 
@@ -270,7 +271,7 @@ function equityChart(curve) {
   const dots = curve.length <= 80 ? curve.slice(1).map((p, i) => `<circle cx="${X(i + 1).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.6" fill="${metrics(p.t).net >= 0 ? '#22c55e' : '#f4506b'}"><title>${esc(p.t.symbol)} ${money(metrics(p.t).net, { sign: true })} → ${money(p.v)}</title></circle>`).join('') : '';
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
     <defs><linearGradient id="eqg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${c}" stop-opacity=".32"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
-    <line x1="${PL}" x2="${W - PR}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="#2e3850" stroke-dasharray="4 4"/>
+    <line x1="${PL}" x2="${W - PR}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" style="stroke:var(--border-2)" stroke-dasharray="4 4"/>
     <path d="${area}" fill="url(#eqg)"/>
     <path d="${line}" fill="none" stroke="${c}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
     ${dots}
@@ -358,20 +359,16 @@ function pageInsights() {
   const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const hist = rHistogram(closed); const hmax = Math.max(...hist.map((h) => h.count), 1);
 
-  // Mistake cost — uses the same rule checks as XP.
-  const flag = (id, pred) => closed.filter(({ t }) => {
-    const pt = g.perTrade[t.id]; const all = [...(pt?.entry || []), ...(pt?.exit || [])];
-    return all.some((i) => i.id === id && pred(i));
-  });
-  const mistakes = [
-    ['No stop-loss at entry', flag('stop', (i) => !i.ok)],
-    ['Oversized risk', flag('risk', (i) => i.xp < 0)],
-    ['Revenge entries', flag('revenge', (i) => !i.ok)],
-    ['Over daily trade limit', flag('overtrade', (i) => !i.ok)],
-    ['Broke the plan', flag('plan', (i) => i.xp < 0)],
-    ['Widened the stop', flag('widen', (i) => !i.ok)],
-    ['Loss ran past the stop', flag('honour', (i) => !i.ok)],
-  ];
+  // Mistake cost — every mistake the engine knows, plus anything you self-reported.
+  const agg = Object.fromEntries(Object.values(MISTAKES).map((n) => [n, { n: 0, net: 0 }]));
+  for (const { t, m } of closed) {
+    const seen = new Set();
+    for (const i of g.perTrade[t.id]?.mistakes || []) {
+      const k = mistakeName(i); if (seen.has(k)) continue; seen.add(k);
+      (agg[k] ||= { n: 0, net: 0 }); agg[k].n++; agg[k].net += m.net;
+    }
+  }
+  const mistakes = Object.entries(agg).sort((a, b) => (b[1].n > 0) - (a[1].n > 0) || a[1].net - b[1].net);
   const clean = closed.filter(({ t }) => g.perTrade[t.id]?.clean);
   const dirty = closed.filter(({ t }) => !g.perTrade[t.id]?.clean);
   const grp = (list) => ({ n: list.length, net: sum(list.map((x) => x.m.net)), wr: list.length ? list.filter((x) => x.m.net > 0).length / list.length : null, r: (() => { const rs = list.map((x) => x.m.r).filter((v) => v != null); return rs.length ? sum(rs) / rs.length : null; })() });
@@ -393,8 +390,8 @@ function pageInsights() {
         <div class="kpi" style="border-color:rgba(34,197,94,.35)"><div class="k">✓ Clean trades (${C.n})</div><div class="v ${cls(C.net)}">${compact(C.net)}</div><div class="s">win ${pct(C.wr, 0)} · avg ${rfmt(C.r)}</div></div>
         <div class="kpi" style="border-color:rgba(244,80,107,.35)"><div class="k">✕ Trades with a mistake (${D.n})</div><div class="v ${cls(D.net)}">${compact(D.net)}</div><div class="s">win ${pct(D.wr, 0)} · avg ${rfmt(D.r)}</div></div>
       </div></section>
-    <section class="card"><header class="card-h"><h3>What mistakes cost you</h3><span class="sub">net P&L of trades with each mistake</span></header>
-      ${mistakes.map(([label, list]) => { const n = sum(list.map((x) => x.m.net)); return `<div class="mistake"><span>${label} <span class="faint">× ${list.length}</span></span><span class="num ${cls(n)}">${list.length ? money(n, { sign: true, dp: 0 }) : '—'}</span></div>`; }).join('')}
+    <section class="card"><header class="card-h"><h3>What mistakes cost you</h3><span class="sub">net P&L of closed trades with each mistake</span></header>
+      ${mistakes.map(([label, v]) => `<div class="mistake ${v.n ? '' : 'none'}"><span>${esc(label)} <span class="faint">× ${v.n}</span></span><span class="num ${cls(v.net)}">${v.n ? money(v.net, { sign: true, dp: 0 }) : '—'}</span></div>`).join('')}
     </section>
     <section class="card"><header class="card-h"><h3>R-multiple distribution</h3><span class="sub">avg ${rfmt(st.avgR)}</span></header>
       <div class="hist">${hist.map((h) => `<div class="col"><div class="c">${h.count || ''}</div><div class="b" style="height:${(h.count / hmax) * 100}%;background:${h.neg ? 'var(--red)' : 'var(--green)'};opacity:${h.count ? 0.85 : 0.15}"></div><div class="l">${h.label}</div></div>`).join('')}</div>
@@ -487,11 +484,19 @@ function pageAchievements() {
   if (L.lvl > LEVELS.length) rungs.push({ n: L.lvl, xp: L.floor, title: L.title });
   const RULES = [
     ['Trade logged', '+10'], ['Stop-loss set before entry', '+15 / −10'], ['Risk within your limit', '+10 / −20'], ['Thesis (20+ chars)', '+10'],
-    ['Target planned', '+5'], ['Setup tagged', '+5'], ['Planned reward ≥ 2R', '+5'], ['Revenge entry (within window of a loss)', '−15'],
-    ['Over daily trade limit', '−10'], ['Exit reason recorded', '+10'], ['Followed / broke the plan', '+15 / −10'], ['Lesson written', '+10'],
-    ['Loss kept within 1R', '+15'], ['Loss ran past 1.5R', '−20'], ['Widened the stop (each, max 3)', '−15'], ['2R+ / 3R+ winner', '+15 / +25'],
-    ['Clean trading day', '+20'], ['Weekly review', '+40'],
+    ['Target planned · setup tagged · plan ≥ 2R', '+5 each'], ['Entered at planned trigger / chased it', '+5 / −10'],
+    ['Exit reason recorded', '+10'], ['Followed / broke the plan', '+15 / −10'], ['Lesson written', '+10'],
+    ['Loss kept within 1R', '+15'], ['2R+ / 3R+ winner', '+15 / +25'], ['Clean trading day', '+20'], ['Weekly review', '+40'],
   ];
+  const PENALTIES = [
+    ['Impulse trade (no setup, no thesis)', '−10'], ['Too much capital in one stock', '−10'], ['Total open risk over limit', '−10'],
+    ['Averaged down a loser', '−15'], ['Revenge entry (within window of a loss)', '−15'], ['Over daily trade limit', '−10'],
+    ['Traded past daily loss limit', '−15'], ['Sized up after 2 losses (tilt)', '−15'], ['Widened the stop (each, max 3)', '−15'],
+    ['Loss ran past 1.5R', '−20'], ['Winner turned into a loss (after +1R)', '−15'], ['Cut a winner short (<1R, discretionary)', '−10'],
+    ['Closed without review', '−5'], ['Self-reported mistake (each)', '−5'],
+    ['Mistake stack: 2+ errors on one trade', '−10 per extra (max −40)'], ['Repeat of a mistake from your last 5 trades', '−5 each'],
+  ];
+
   return `<div class="page-h"><div><h1>Achievements</h1><p>${nf0.format(g.xp)} XP earned · Level ${L.lvl} ${esc(L.title)}</p></div></div>
   <section class="card" style="margin-bottom:16px"><header class="card-h"><h3>Level path</h3><span class="sub">${nf0.format(L.next - L.xp)} XP to next level</span></header>
     <div class="ladder">${rungs.map((r) => `<div class="rung ${r.n < L.lvl ? 'done' : r.n === L.lvl ? 'cur' : ''}"><div class="n">${r.n}</div><div class="t">${esc(r.title)}</div><div class="x">${nf0.format(r.xp)} XP</div></div>`).join('')}</div>
@@ -503,7 +508,10 @@ function pageAchievements() {
   <div class="insights">
     <section class="card"><header class="card-h"><h3>How XP works</h3><span class="sub">process over profit</span></header>
       <div class="note" style="margin-bottom:12px">XP never rewards P&L directly. A disciplined loser earns more than a lucky, oversized winner — because that's what builds a durable edge. XP is recalculated from your journal every time, so edits can't game it.</div>
+      <div class="label" style="margin-bottom:6px">Earn</div>
       <div class="rules">${RULES.map(([k, v]) => `<div><span class="muted">${k}</span><b class="mono ${v.startsWith('−') ? 'neg' : 'gold'}">${v}</b></div>`).join('')}</div>
+      <div class="label" style="margin:16px 0 6px">Lose — the mistakes it catches</div>
+      <div class="rules">${PENALTIES.map(([k, v]) => `<div><span class="muted">${k}</span><b class="mono neg">${v}</b></div>`).join('')}</div>
     </section>
     <section class="card"><header class="card-h"><h3>XP log</h3><span class="sub">${g.events.length} events</span></header>
       <div style="max-height:560px;overflow:auto">${xpFeed(g.events.slice(0, 200))}</div></section>
@@ -543,6 +551,10 @@ function pageSettings() {
         <div class="field"><label>Max risk per trade (₹)</label><input class="input num" type="number" name="maxRiskPerTrade" value="${s.maxRiskPerTrade}" min="0"><span class="hint">${s.capital ? pct(s.maxRiskPerTrade / s.capital, 2) + ' of capital' : ''}</span></div>
         <div class="field"><label>Max new trades per day</label><input class="input num" type="number" name="maxTradesPerDay" value="${s.maxTradesPerDay}" min="1"></div>
         <div class="field"><label>Revenge-trade window (minutes)</label><input class="input num" type="number" name="revengeWindowMins" value="${s.revengeWindowMins}" min="0"><span class="hint">New entry this soon after a loss = −15 XP</span></div>
+        <div class="field"><label>Daily loss limit (₹)</label><input class="input num" type="number" name="maxDailyLoss" value="${s.maxDailyLoss}" min="0"><span class="hint">Entries after losing this much in a day = −15 XP</span></div>
+        <div class="field"><label>Max total open risk (% of capital)</label><input class="input num" type="number" step="any" name="maxPortfolioHeatPct" value="${s.maxPortfolioHeatPct}" min="0"><span class="hint">Sum of all open trades' risk to stop</span></div>
+        <div class="field"><label>Max capital in one stock (%)</label><input class="input num" type="number" step="any" name="maxPositionPct" value="${s.maxPositionPct}" min="0"><span class="hint">Cash equity only; 0 = off</span></div>
+        <div class="field"><label>Chase tolerance (%)</label><input class="input num" type="number" step="any" name="chaseTolerancePct" value="${s.chaseTolerancePct}" min="0"><span class="hint">Entry this far past your planned trigger = chased</span></div>
       </div>
       <div class="row"><button class="btn primary" type="submit">Save settings</button><span class="muted" id="settings-msg"></span></div>
     </form>
@@ -610,7 +622,8 @@ function openTradeForm(t = null, prefill = {}) {
           <div class="field"><label>Quantity (units)</label><input class="input num" name="qty" type="number" step="any" min="0" value="${v.qty ?? ''}" required><div class="hint" id="lot-hint">${v.lotSize > 1 ? `1 lot = ${v.lotSize}` : ''}</div></div>
           <div class="field"><label>Entry time</label><input class="input" name="entryTime" type="datetime-local" value="${toLocalInput(v.entryTime)}"></div>
         </div>
-        <div class="grid-3">
+        <div class="grid-4">
+          <div class="field"><label>Planned trigger</label><input class="input num" name="plannedEntry" type="number" step="any" min="0" value="${v.plannedEntry ?? ''}" placeholder="optional"></div>
           <div class="field"><label>Stop-loss</label><input class="input num" name="stopLoss" type="number" step="any" min="0" value="${v.stopLoss ?? ''}"></div>
           <div class="field"><label>Target</label><input class="input num" name="target" type="number" step="any" min="0" value="${v.target ?? ''}"></div>
           <div class="field"><label>Setup</label><input class="input" name="setup" list="setup-list" value="${esc(v.setup)}" placeholder="Breakout"><datalist id="setup-list">${setupOptions().map((s) => `<option value="${esc(s)}">`).join('')}</datalist></div>
@@ -642,7 +655,7 @@ function draftFromTradeForm(form) {
   const d = {
     ...(base || {}),
     symbol: String(g('symbol') || '').trim().toUpperCase(), exchange: g('exchange'), segment: g('segment') || 'EQ', side: g('side') || 'LONG',
-    qty: num(g('qty')), entryPrice: num(g('entryPrice')), stopLoss: stop, target: num(g('target')),
+    qty: num(g('qty')), entryPrice: num(g('entryPrice')), plannedEntry: num(g('plannedEntry')), stopLoss: stop, target: num(g('target')),
     setup: g('setup') || '', thesis: g('thesis') || '', emotionEntry: g('emotionEntry') || '', confidence: num(g('confidence')),
     entryTime: fromLocalInput(g('entryTime')), screenshotUrl: g('screenshotUrl') || '', lotSize: num(form.dataset.lot),
     entrySource: form.dataset.entrySource || 'manual',
@@ -657,7 +670,8 @@ function renderTradePreview(form) {
   const others = S.state.trades.filter((x) => x.id !== d.id);
   const sameDay = d.entryTime ? others.filter((x) => dayKey(x.entryTime) === dayKey(d.entryTime) && new Date(x.entryTime) <= new Date(d.entryTime)).length : 0;
   const checks = entryChecks(d, { settings: st, trades: others, dayIndex: sameDay + 1 });
-  const xp = sum(checks.map((c) => c.xp));
+  const nErr = checks.filter((c) => c.xp < 0).length;
+  const xp = sum(checks.map((c) => c.xp)) - (nErr >= 2 ? Math.min(40, 10 * (nErr - 1)) : 0);
   const lot = d.lotSize > 1 ? d.lotSize : 1;
   const maxQty = m.riskPerUnit > 0 ? Math.floor(st.maxRiskPerTrade / m.riskPerUnit / lot) * lot : null;
   const over = m.riskAmt != null && m.riskAmt > st.maxRiskPerTrade * 1.05;
@@ -684,9 +698,12 @@ function renderTradePreview(form) {
     ${over ? `<div class="warn" style="margin-top:8px">Risk is over your ₹${nf0.format(st.maxRiskPerTrade)} limit (−20 XP).</div>` : ''}
     ${stopNote ? `<div style="margin-top:8px">${stopNote}</div>` : ''}
     <h4 style="margin-top:16px">XP for this entry</h4>
-    <div class="checklist">${checks.filter((c) => c.xp || c.id === 'revenge' || c.id === 'overtrade').map((c) => `<div class="check ${c.xp > 0 ? 'ok' : c.xp < 0 ? 'bad' : c.ok ? 'ok' : ''}"><span class="ic">${c.xp < 0 ? '✕' : c.ok ? '✓' : ''}</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}
-      ${checks.filter((c) => !c.xp && !c.ok && !['revenge', 'overtrade', 'logged'].includes(c.id)).map((c) => `<div class="check"><span class="ic">○</span><span class="lb">${esc(c.label)}</span></div>`).join('')}</div>
-    <div class="xp-total ${xp < 0 ? 'neg' : ''}"><span>${base ? 'Entry XP' : 'You\'ll earn'}</span><b>${xp > 0 ? '+' : ''}${xp} XP</b></div>`);
+    <div class="checklist">${checks.filter((c) => c.xp < 0).map((c) => `<div class="check bad"><span class="ic">✕</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}
+      ${checks.filter((c) => c.xp > 0).map((c) => `<div class="check ok"><span class="ic">✓</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}
+      ${checks.filter((c) => !c.xp && !c.ok && !c.disc && c.id !== 'logged').map((c) => `<div class="check"><span class="ic">○</span><span class="lb">${esc(c.label)}</span></div>`).join('')}
+      ${(() => { const pass = checks.filter((c) => c.disc && c.ok && !c.xp); return pass.length ? `<div class="check ok" title="${esc(pass.map((c) => c.label).join(' · '))}"><span class="ic">✓</span><span class="lb">${pass.length} mistake checks passed</span></div>` : ''; })()}</div>
+    ${(() => { const n = checks.filter((c) => c.xp < 0).length; return n >= 2 ? `<div class="warn" style="margin-top:8px">${n} mistakes on one trade: an extra ${-Math.min(40, 10 * (n - 1))} XP stack penalty applies.</div>` : ''; })()}
+    <div class="xp-total ${xp < 0 ? 'neg' : ''}"><span>${base ? 'Entry XP' : xp < 0 ? 'You\'ll lose' : 'You\'ll earn'}</span><b>${xp > 0 ? '+' : ''}${xp} XP</b></div>`);
 }
 
 // Only touch the DOM when the content changed, so a click that starts while a blur
@@ -709,7 +726,7 @@ function bindTradeForm(form) {
     e.preventDefault();
     const d = draftFromTradeForm(form); const base = form._base;
     const body = {
-      symbol: d.symbol, exchange: d.exchange, segment: d.segment, side: d.side, qty: d.qty, entryPrice: d.entryPrice,
+      symbol: d.symbol, exchange: d.exchange, segment: d.segment, side: d.side, qty: d.qty, entryPrice: d.entryPrice, plannedEntry: d.plannedEntry,
       stopLoss: d.stopLoss, target: d.target, setup: d.setup, thesis: d.thesis, emotionEntry: d.emotionEntry, confidence: d.confidence,
       entryTime: d.entryTime, screenshotUrl: d.screenshotUrl, lotSize: d.lotSize, entrySource: d.entrySource,
     };
@@ -807,8 +824,11 @@ function openCloseForm(t, prefill = {}) {
           <div class="field"><label>Exit time</label><input class="input" name="exitTime" type="datetime-local" value="${toLocalInput(prefill.exitTime)}"></div>
           <div class="field"><label>Charges (₹)</label><input class="input num" name="charges" type="number" step="any" min="0" value="${t.charges ?? ''}" placeholder="0"></div>
         </div>
+        <div class="field"><label>Best price reached while open <span class="faint" style="font-weight:500">${t.mfePrice != null ? '(tracked from live prices)' : '(optional — catches winners that turned into losers)'}</span></label><input class="input num" name="mfePrice" type="number" step="any" min="0" value="${t.mfePrice ?? ''}" style="max-width:220px"></div>
         <div class="field"><label>Why did you exit?</label><div class="chips">${radios('exitReason', EXIT_REASONS.map((r) => [r, r]), t.exitReason)}</div></div>
         <div class="field"><label>Did you follow your plan?</label><div class="seg">${radios('followedPlan', [['yes', '✓ Yes, as planned', 'long'], ['no', '✕ No, I deviated', 'short']], t.followedPlan === true ? 'yes' : t.followedPlan === false ? 'no' : '')}</div></div>
+        <div class="field"><label>Mistakes only you know about <span class="faint" style="font-weight:500">(−5 XP each — cheaper than repeating them)</span></label>
+          <div class="chips">${Object.entries(MISTAKE_TAGS).map(([k, l]) => `<label><input type="checkbox" name="mistakes" value="${k}" ${(t.mistakes || []).includes(k) ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div></div>
         <div class="field"><label>How do you feel now?</label><div class="chips">${radios('emotionExit', EMO_OUT.map((e) => [e, e]), t.emotionExit)}</div></div>
         <div class="field"><label>Lesson — what will you repeat or change?</label><textarea class="input" name="lessons" placeholder="Held through the pullback because the thesis was intact — good. Exited on target instead of trailing; next time trail half.">${esc(t.lessons)}</textarea></div>
         <div class="field"><label>Execution grade</label>${stars('rating', t.rating)}</div>
@@ -824,7 +844,8 @@ function openCloseForm(t, prefill = {}) {
     const fd = new FormData(form); const fp = fd.get('followedPlan');
     return { ...t, status: 'CLOSED', exitPrice: num(fd.get('exitPrice')), exitTime: fromLocalInput(fd.get('exitTime')), charges: num(fd.get('charges')),
       exitReason: fd.get('exitReason') || '', followedPlan: fp === 'yes' ? true : fp === 'no' ? false : null, emotionExit: fd.get('emotionExit') || '',
-      lessons: fd.get('lessons') || '', rating: num(fd.get('rating')), exitSource: form.dataset.exitSource };
+      lessons: fd.get('lessons') || '', rating: num(fd.get('rating')), exitSource: form.dataset.exitSource,
+      mistakes: fd.getAll('mistakes'), mfePrice: num(fd.get('mfePrice')) };
   };
   const preview = () => {
     const d = draft(); const m = metrics(d); const checks = d.exitPrice ? exitChecks(d, m) : [];
@@ -838,6 +859,7 @@ function openCloseForm(t, prefill = {}) {
       <div class="stat-line"><span class="muted">Held</span><b>${d.exitTime ? hold(m.holdDays) : '—'}</b></div>
       ${t.stopWidenCount ? `<div class="warn" style="margin-top:6px">Stop was widened ${t.stopWidenCount}× on this trade.</div>` : ''}
       <h4 style="margin-top:16px">XP for this exit</h4>
+      ${d.exitPrice && checks.filter((c) => c.xp < 0).length >= 2 ? `<div class="warn" style="margin:6px 0">${checks.filter((c) => c.xp < 0).length} mistakes on this exit — stack penalty applies.</div>` : ''}
       ${d.exitPrice ? `<div class="checklist">${checks.map((c) => `<div class="check ${c.xp > 0 ? 'ok' : c.xp < 0 ? 'bad' : c.ok ? 'ok' : ''}"><span class="ic">${c.xp < 0 ? '✕' : c.ok ? '✓' : '○'}</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}</div>
       <div class="xp-total ${xp < 0 ? 'neg' : ''}"><span>Exit XP <span class="faint" style="font-weight:500">(entry earned ${entryXp > 0 ? '+' : ''}${entryXp})</span></span><b>${xp > 0 ? '+' : ''}${xp} XP</b></div>` : '<div class="empty-sm">Enter an exit price.</div>'}
       <p class="faint" style="font-size:11.5px;margin-bottom:0">Profit itself earns nothing — honest journaling and respecting your stop do.</p>`);
@@ -849,7 +871,7 @@ function openCloseForm(t, prefill = {}) {
     const d = draft();
     const btn = form.querySelector('[type=submit]'); btn.disabled = true;
     try {
-      await api(`/api/trades/${t.id}`, { method: 'PUT', body: { status: 'CLOSED', exitPrice: d.exitPrice, exitTime: d.exitTime, charges: d.charges, exitReason: d.exitReason, followedPlan: d.followedPlan, emotionExit: d.emotionExit, lessons: d.lessons, rating: d.rating, exitSource: d.exitSource } });
+      await api(`/api/trades/${t.id}`, { method: 'PUT', body: { status: 'CLOSED', exitPrice: d.exitPrice, exitTime: d.exitTime, charges: d.charges, exitReason: d.exitReason, followedPlan: d.followedPlan, emotionExit: d.emotionExit, lessons: d.lessons, rating: d.rating, exitSource: d.exitSource, mistakes: d.mistakes, ...(d.mfePrice != null ? { mfePrice: d.mfePrice } : {}) } });
       closeModal();
       await reload({ celebrate: true });
     } catch (err) { $('#form-err', form).textContent = err.message; btn.disabled = false; }
@@ -885,6 +907,7 @@ function renderDrawer() {
       ${item('Planned R:R', m.plannedRR != null ? '1 : ' + m.plannedRR.toFixed(2) : '—')}
       ${item('Initial risk', m.riskAmt != null ? money(m.riskAmt, { dp: 0 }) : '—')}
       ${item('Charges', t.charges ? money(t.charges) : '—')}
+      ${item('Best / worst price seen', t.mfePrice != null ? `${price(t.mfePrice)} / ${price(t.maePrice)}` : '—')}
       ${item('Setup', esc(t.setup || '—'))}
       ${item('Segment', esc(Object.fromEntries(SEGMENTS)[t.segment] || t.segment))}
       ${item('Emotion in → out', `${esc(t.emotionEntry || '—')} → ${esc(t.emotionExit || '—')}`)}
@@ -894,7 +917,7 @@ function renderDrawer() {
     ${t.lessons ? `<div class="sec"><div class="label">Lesson</div><div class="prose" style="margin-top:6px">${esc(t.lessons)}</div></div>` : ''}
     ${t.screenshotUrl ? `<div class="sec"><a class="link" href="${esc(t.screenshotUrl)}" target="_blank" rel="noopener">📈 Open chart ↗</a></div>` : ''}
     ${t.stopHistory?.length ? `<div class="sec"><div class="label">Stop moves</div>${t.stopHistory.map((h) => `<div class="stat-line"><span class="muted">${fmtDT(h.at)}</span><b>${price(h.from)} → ${price(h.to)}</b></div>`).join('')}</div>` : ''}
-    <div class="sec"><div class="label">XP breakdown</div><div class="checklist" style="margin-top:8px">${checkList(pt.entry)}${checkList(pt.exit)}</div></div>
+    <div class="sec"><div class="label">XP breakdown</div><div class="checklist" style="margin-top:8px">${checkList(pt.entry)}${checkList(pt.exit)}${(pt.penalties || []).map((c) => `<div class="check bad"><span class="ic">✕</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}</div></div>
     <div class="sec row wrap">
       ${t.status === 'OPEN' ? `<button class="btn green" data-action="close-trade" data-id="${t.id}">Close trade</button>` : `<button class="btn" data-action="reopen-trade" data-id="${t.id}">Reopen</button>`}
       <button class="btn" data-action="edit-trade" data-id="${t.id}">Edit</button>
@@ -1008,11 +1031,17 @@ function paintLive() {
 // =====================================================================
 const findTrade = (id) => S.state.trades.find((t) => t.id === id);
 const actions = {
+  'toggle-theme': () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('tq-theme', next); } catch { /* private mode */ }
+    render();
+  },
   'new-trade': () => openTradeForm(),
   'close-modal': () => closeModal(),
   'open-drawer': (el) => { S.drawerId = el.dataset.id; renderDrawer(); },
   'close-drawer': () => { S.drawerId = null; $('#drawer-root').innerHTML = ''; },
-  'close-trade': (el, e) => { e.stopPropagation(); openCloseForm(findTrade(el.dataset.id)); },
+  'close-trade': async (el, e) => { e.stopPropagation(); const id = el.dataset.id; await reload(); openCloseForm(findTrade(id)); },
   'edit-trade': (el) => openTradeForm(findTrade(el.dataset.id)),
   'edit-exit': (el) => { const t = findTrade(el.dataset.id); openCloseForm(t, { exitPrice: t.exitPrice, exitTime: t.exitTime, exitSource: t.exitSource }); },
   'reopen-trade': async (el) => {
