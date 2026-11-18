@@ -386,3 +386,10 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .chart.candles text.tag { fill: #fff; font-size: 9.5px; font-weight: 600; }
 .chart-loading { height: 200px; display: grid; place-items: center; color: var(--muted); font-size: 13px; background: var(--bg-2); border-radius: 10px; border: 1px dashed var(--border); }
 .btn.warn-btn { color: var(--red); border-color: rgba(244,80,107,.4); background: var(--red-soft); }
+
+/* trade types */
+.lt-only { display: none !important; }
+form[data-horizon="LONGTERM"] .trade-only { display: none !important; }
+form[data-horizon="LONGTERM"] .field.lt-only { display: flex !important; }
+form[data-horizon="LONGTERM"] span.lt-only { display: inline !important; }
+.sm-seg span { padding: 5px 10px; font-size: 12px; }

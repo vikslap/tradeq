@@ -64,3 +64,53 @@ export function rHistogram(closed) {
   ];
   return buckets.map((b, i) => ({ ...b, neg: i < 3, count: closed.filter((x) => x.m.r != null && b.test(x.m.r)).length }));
 }
+
+// ---------------------------------------------------------------------------
+// Long-term holdings
+// ---------------------------------------------------------------------------
+const YEAR = 365 * 86400000;
+
+/** Annualised money-weighted return for dated cash flows [{t: ms, v: ₹}] (out < 0, in > 0). */
+export function xirr(flows) {
+  if (!flows.some((f) => f.v < 0) || !flows.some((f) => f.v > 0)) return null;
+  const t0 = Math.min(...flows.map((f) => f.t));
+  const npv = (r) => flows.reduce((s, f) => s + f.v / Math.pow(1 + r, (f.t - t0) / YEAR), 0);
+  let lo = -0.9999; let hi = 100; let flo = npv(lo);
+  if (flo * npv(hi) > 0) return null;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2; const fm = npv(mid);
+    if (Math.sign(fm) === Math.sign(flo)) { lo = mid; flo = fm; } else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/** CAGR only makes sense after a while; under 30 days we show the plain return. */
+const cagr = (ret, days) => (ret != null && days >= 30 ? Math.pow(1 + ret, 365 / days) - 1 : null);
+
+export function investmentStats(trades, ltpFor, now = Date.now()) {
+  const lt = trades.filter((t) => t.horizon === 'LONGTERM');
+  const flows = [];
+  const holdings = lt.filter((t) => t.status === 'OPEN').map((t) => {
+    const inv = t.entryPrice * t.qty; const ltp = ltpFor(t);
+    const value = ltp != null ? ltp * t.qty : null;
+    const days = (now - new Date(t.entryTime)) / 86400000;
+    const ret = value != null ? value / inv - 1 : null;
+    flows.push({ t: new Date(t.entryTime).getTime(), v: -inv }, { t: now, v: value ?? inv });
+    return { t, inv, ltp, value, pnl: value != null ? value - inv : null, ret, cagr: cagr(ret, days), days };
+  });
+  const sold = lt.filter((t) => t.status === 'CLOSED' && t.exitTime).map((t) => {
+    const inv = t.entryPrice * t.qty; const net = metrics(t).net;
+    const days = (new Date(t.exitTime) - new Date(t.entryTime)) / 86400000;
+    flows.push({ t: new Date(t.entryTime).getTime(), v: -inv }, { t: new Date(t.exitTime).getTime(), v: inv + net });
+    return { t, inv, net, ret: net / inv, cagr: cagr(net / inv, days), days };
+  });
+  const priced = holdings.filter((h) => h.value != null);
+  return {
+    holdings, sold,
+    invested: sum(holdings.map((h) => h.inv)),
+    value: priced.length === holdings.length ? sum(holdings.map((h) => h.value)) : null,
+    unrealised: priced.length ? sum(priced.map((h) => h.pnl)) : null,
+    realised: sum(sold.map((x) => x.net)),
+    xirr: xirr(flows),
+  };
+}

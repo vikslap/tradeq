@@ -3,7 +3,8 @@
 // Cash equity can be listed on NSE and BSE; match those by symbol alone.
 const keyOf = (exchange, symbol) => (exchange === 'NSE' || exchange === 'BSE' ? `EQ:${symbol}` : `${exchange}:${symbol}`);
 
-export function reconcile(trades, { holdings = [], positions = [] }) {
+export function reconcile(trades, { holdings = [], positions = [] }, ignore = []) {
+  const ignored = new Set(ignore);
   const broker = {};
   const add = (r, qty) => {
     const k = keyOf(r.exchange, r.symbol);
@@ -25,7 +26,9 @@ export function reconcile(trades, { holdings = [], positions = [] }) {
     j.trades.push(t);
   }
 
-  const keys = new Set([...Object.keys(broker).filter((k) => broker[k].qty !== 0), ...Object.keys(journal)]);
+  // Holdings you chose to ignore (e.g. old investments you don't journal) are skipped
+  // unless the journal has an open trade for them.
+  const keys = new Set([...Object.keys(broker).filter((k) => broker[k].qty !== 0 && !(ignored.has(k) && !journal[k])), ...Object.keys(journal)]);
   const rows = [...keys].map((k) => {
     const b = broker[k]; const j = journal[k];
     const bq = b?.qty || 0; const jq = j?.qty || 0;
@@ -43,5 +46,6 @@ export function reconcile(trades, { holdings = [], positions = [] }) {
   });
   const order = { unlogged: 0, closed: 1, qty: 2, match: 3 };
   rows.sort((a, b) => order[a.status] - order[b.status] || a.symbol.localeCompare(b.symbol));
-  return { rows, issues: rows.filter((r) => r.status !== 'match').length, at: new Date().toISOString() };
+  const ignoredCount = Object.keys(broker).filter((k) => broker[k].qty !== 0 && ignored.has(k) && !journal[k]).length;
+  return { rows, issues: rows.filter((r) => r.status !== 'match').length, ignored: ignoredCount, at: new Date().toISOString() };
 }

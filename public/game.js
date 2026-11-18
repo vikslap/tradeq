@@ -5,6 +5,21 @@
 export const dayKey = (d) => new Date(d).toLocaleDateString('en-CA'); // local YYYY-MM-DD
 export const tradeKey = (t) => `${t.exchange}:${t.symbol}`;
 
+// Trade types. Long-term holdings follow investing rules and stay out of trading stats.
+export const HORIZONS = [['INTRADAY', 'Intraday'], ['SWING', 'Swing'], ['POSITIONAL', 'Positional'], ['LONGTERM', 'Long-term']];
+export const HORIZON_LABEL = Object.fromEntries(HORIZONS);
+export const isLT = (t) => t.horizon === 'LONGTERM';
+export const isTrading = (t) => !isLT(t);
+const DAY_MS = 86400000;
+export const REVIEW_DAYS = 90;
+
+/** When a long-term holding's next thesis review is due. */
+export function reviewStatus(t, now = Date.now()) {
+  const last = (t.thesisReviews || []).map((r) => r.at).sort().at(-1) || t.entryTime;
+  const due = new Date(last).getTime() + REVIEW_DAYS * DAY_MS;
+  return { last, due: new Date(due).toISOString(), overdue: now > due, daysLeft: Math.ceil((due - now) / DAY_MS) };
+}
+
 export function weekStart(d = new Date()) {
   const x = new Date(d); x.setHours(0, 0, 0, 0);
   x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
@@ -58,6 +73,8 @@ export const MISTAKES = {
   dailyLoss: 'Traded past daily loss limit', sizeUp: 'Sized up after losses (tilt)', plan: 'Broke the plan',
   widen: 'Widened the stop', honour: 'Loss ran past the stop', gaveBack: 'Let a winner turn into a loss',
   cutEarly: 'Cut a winner short', unreviewed: 'Closed without review',
+  thesis: 'Investment without a thesis', sellCond: 'Investment without a sell condition',
+  sellNoReason: 'Sold an investment without a reason', reviewOverdue: 'Thesis review overdue',
 };
 
 /** Mistakes only you can see — tag them honestly when closing a trade. */
@@ -70,8 +87,38 @@ export const MISTAKE_TAGS = {
 
 const sum = (a) => a.reduce((x, y) => x + y, 0);
 
+function concentrationCheck(t, m, s) {
+  if (t.segment !== 'EQ' || !(s.capital > 0) || !(s.maxPositionPct > 0) || !m.value) return [];
+  const p = m.value / s.capital;
+  return [rule('concentration', p <= s.maxPositionPct / 100, 0, -10, 'Position size within limit', `${(p * 100).toFixed(0)}% of capital in one stock (limit ${s.maxPositionPct}%)`, true)];
+}
+
+/** Long-term investments: judged on thesis and exit plan, not stops and R. */
+function investEntryChecks(t, s) {
+  const m = metrics(t);
+  return [
+    rule('logged', true, 10, 0, 'Investment logged', ''),
+    rule('thesis', (t.thesis || '').trim().length >= 20, 15, -10, 'Wrote an investment thesis', 'No investment thesis (20+ chars)', true),
+    rule('sellCond', (t.sellCondition || '').trim().length >= 10, 10, -5, 'Wrote a sell condition', 'No sell condition — what would make you sell?', true),
+    ...concentrationCheck(t, m, s),
+  ];
+}
+
+function investExitChecks(t) {
+  const out = [];
+  if (t.exitReason) out.push({ id: 'exitReason', ok: true, xp: 10, label: 'Sell reason recorded', disc: false });
+  else out.push({ id: 'sellNoReason', ok: false, xp: -10, label: 'Sold without a recorded reason', disc: true });
+  if (t.followedPlan === true) out.push({ id: 'plan', ok: true, xp: 15, label: 'Sold per my sell condition', disc: true });
+  else if (t.followedPlan === false) out.push({ id: 'plan', ok: false, xp: -10, label: 'Sold against my own plan', disc: true });
+  out.push(rule('lesson', (t.lessons || '').trim().length >= 10, 10, 0, 'Wrote a lesson', 'No lesson written'));
+  for (const tag of t.mistakes || []) out.push({ id: 'self:' + tag, ok: false, xp: -5, label: `Self-reported: ${MISTAKE_TAGS[tag] || tag}`, disc: true, self: true });
+  return out;
+}
+
 export function entryChecks(t, { settings = {}, trades = [], dayIndex }) {
   const s = { ...RULE_DEFAULTS, ...settings };
+  if (isLT(t)) return investEntryChecks(t, s);
+  trades = trades.filter(isTrading);
   const m = metrics(t);
   const dir = m.dir;
   const maxRisk = s.maxRiskPerTrade || Infinity;
@@ -97,10 +144,7 @@ export function entryChecks(t, { settings = {}, trades = [], dayIndex }) {
     const slip = ((t.entryPrice - t.plannedEntry) * dir) / t.plannedEntry;
     out.push(rule('chase', slip <= s.chaseTolerancePct / 100, 5, -10, 'Entered at your planned trigger', `Chased entry ${(slip * 100).toFixed(1)}% past trigger`, true));
   }
-  if (t.segment === 'EQ' && s.capital > 0 && s.maxPositionPct > 0 && m.value) {
-    const p = m.value / s.capital;
-    out.push(rule('concentration', p <= s.maxPositionPct / 100, 0, -10, 'Position size within limit', `${(p * 100).toFixed(0)}% of capital in one stock (limit ${s.maxPositionPct}%)`, true));
-  }
+  out.push(...concentrationCheck(t, m, s));
   // Positions still open at the moment of this entry.
   const openAt = others.filter((o) => new Date(o.entryTime).getTime() < at && (o.status !== 'CLOSED' || !o.exitTime || new Date(o.exitTime).getTime() > at));
   if (s.capital > 0 && s.maxPortfolioHeatPct > 0 && m.riskAmt != null) {
@@ -128,6 +172,7 @@ export function entryChecks(t, { settings = {}, trades = [], dayIndex }) {
 }
 
 export function exitChecks(t, m = metrics(t)) {
+  if (isLT(t)) return investExitChecks(t);
   const out = [
     rule('exitReason', Boolean(t.exitReason), 10, 0, 'Exit reason recorded', 'No exit reason'),
   ];
@@ -200,6 +245,8 @@ export const BADGES = [
   { id: 'mirror', icon: '🪞', name: 'Mirror Time', desc: 'Complete 4 weekly reviews', goal: 4, val: (c) => c.reviews },
   { id: 'cleanweek', icon: '🧹', name: 'Clean Sweep', desc: 'Earn 5 clean-day bonuses', goal: 5, val: (c) => c.cleanDays },
   { id: 'honest', icon: '🔍', name: 'Honest Mirror', desc: 'Self-report 5 mistakes you made', goal: 5, val: (c) => c.selfReports },
+  { id: 'thesisrev', icon: '📚', name: 'Thesis Keeper', desc: 'Complete 4 thesis reviews on long-term holdings', goal: 4, val: (c) => c.thesisReviews },
+  { id: 'longgame', icon: '🌳', name: 'The Long Game', desc: 'Hold a long-term investment for a year', goal: 1, val: (c) => c.longHolds },
   { id: 'patience', icon: '🧘', name: 'Patience Pays', desc: 'Hold a winner for 20+ days', goal: 1, val: (c) => c.longWins },
   { id: 'multi', icon: '🧭', name: 'Multi-Asset', desc: 'Trade 3 different segments', goal: 3, val: (c) => c.segments.size },
   { id: 'fifty', icon: '🏅', name: 'Half Century', desc: 'Log 50 trades', goal: 50, val: (c) => c.entries },
@@ -217,7 +264,7 @@ export function computeGame(state) {
 
   // Entry order within each day (for the daily-limit rule).
   const dayIdx = {}; const dayCount = {};
-  [...trades].sort((a, b) => new Date(a.entryTime) - new Date(b.entryTime)).forEach((t) => {
+  [...trades].filter(isTrading).sort((a, b) => new Date(a.entryTime) - new Date(b.entryTime)).forEach((t) => {
     const d = dayKey(t.entryTime); dayCount[d] = (dayCount[d] || 0) + 1; dayIdx[t.id] = dayCount[d];
   });
 
@@ -227,12 +274,13 @@ export function computeGame(state) {
     if (t.status === 'CLOSED' && t.exitTime) timeline.push({ at: t.exitTime, type: 'exit', t });
   }
   for (const rv of reviews) timeline.push({ at: rv.createdAt, type: 'review', rv });
+  for (const t of trades) for (const r of t.thesisReviews || []) timeline.push({ at: r.at, type: 'thesis', t, r });
   timeline.sort((a, b) => new Date(a.at) - new Date(b.at) || (a.type === 'entry' ? -1 : 1));
 
   const c = {
     entries: 0, liveEntries: 0, fullPlans: 0, cleanLosses: 0, bigWinners: 0, riskStreak: 0, bestRiskStreak: 0,
     discStreak: 0, bestDiscStreak: 0, noRevengeStreak: 0, bestNoRevenge: 0, lessons: 0, reviews: 0,
-    segments: new Set(), longWins: 0, cleanDays: 0, greenMonths: 0, selfReports: 0,
+    segments: new Set(), longWins: 0, cleanDays: 0, greenMonths: 0, selfReports: 0, thesisReviews: 0, longHolds: 0,
   };
   const earned = {};
   const push = (at, items, ref) => {
@@ -241,6 +289,7 @@ export function computeGame(state) {
       events.push({ key: `${ref.key}:${it.id}`, at, xp: it.xp, label: it.label, tradeId: ref.tradeId || null, symbol: ref.symbol || '' });
     }
   };
+  const lastThesisAward = {};
   const checkBadges = (at) => { for (const b of BADGES) if (!earned[b.id] && b.val(c) >= b.goal) earned[b.id] = at; };
 
   for (const ev of timeline) {
@@ -251,11 +300,12 @@ export function computeGame(state) {
       push(ev.at, items, { key: t.id + ':in', tradeId: t.id, symbol: t.symbol });
       const ok = (id) => items.find((i) => i.id === id)?.ok;
       c.entries++;
+      c.segments.add(t.segment);
       if (t.entrySource && t.entrySource !== 'manual') c.liveEntries++;
+      if (isLT(t)) { checkBadges(ev.at); continue; }
       if (ok('stop') && ok('target') && ok('thesis')) c.fullPlans++;
       c.riskStreak = ok('risk') ? c.riskStreak + 1 : 0; c.bestRiskStreak = Math.max(c.bestRiskStreak, c.riskStreak);
       c.noRevengeStreak = ok('revenge') ? c.noRevengeStreak + 1 : 0; c.bestNoRevenge = Math.max(c.bestNoRevenge, c.noRevengeStreak);
-      c.segments.add(t.segment);
     } else if (ev.type === 'exit') {
       const t = ev.t; const m = metrics(t);
       const items = exitChecks(t, m);
@@ -263,12 +313,21 @@ export function computeGame(state) {
       push(ev.at, items, { key: t.id + ':out', tradeId: t.id, symbol: t.symbol });
       if ((t.lessons || '').trim().length >= 10) c.lessons++;
       c.selfReports += (t.mistakes || []).length;
+      if (isLT(t)) { checkBadges(ev.at); continue; }
       if (m.net < 0 && m.r != null && m.r >= -1.1) c.cleanLosses++;
       if (m.r != null && m.r >= 3) c.bigWinners++;
       if (m.net > 0 && m.holdDays >= 20) c.longWins++;
       const clean = isClean(perTrade[t.id]);
       perTrade[t.id].clean = clean;
       c.discStreak = clean ? c.discStreak + 1 : 0; c.bestDiscStreak = Math.max(c.bestDiscStreak, c.discStreak);
+    } else if (ev.type === 'thesis') {
+      // One rewarded review per holding every 60 days (the first after 30 days in), so it can't be farmed.
+      const t = ev.t; const at = new Date(ev.r.at).getTime();
+      const lastAward = lastThesisAward[t.id] ?? new Date(t.entryTime).getTime() - 30 * DAY_MS;
+      if (at - lastAward >= 60 * DAY_MS) {
+        lastThesisAward[t.id] = at; c.thesisReviews++;
+        push(ev.r.at, [{ id: 'thesis', xp: 20, label: `Thesis review${ev.r.thesisIntact === false ? ' (thesis broken)' : ''}` }], { key: `${t.id}:tr:${ev.r.id}`, tradeId: t.id, symbol: t.symbol });
+      }
     } else {
       push(ev.at, [{ id: 'review', xp: 40, label: `Weekly review (${ev.rv.weekStart})` }], { key: 'rv:' + ev.rv.weekStart });
       c.reviews++;
@@ -279,7 +338,23 @@ export function computeGame(state) {
   // Compounding: several mistakes on one trade cost extra, and repeating a mistake
   // made in any of your previous 5 trades costs extra again.
   const history = [];
-  for (const t of [...trades].sort((a, b) => new Date(a.entryTime) - new Date(b.entryTime))) {
+  const nowMs = Date.now();
+  for (const t of trades.filter(isLT)) {
+    const pt = perTrade[t.id]; if (!pt) continue;
+    const extra = [];
+    if (t.status === 'OPEN') {
+      const rs = reviewStatus(t, nowMs);
+      const late = new Date(rs.due).getTime() + 30 * DAY_MS;
+      if (nowMs > late) extra.push({ id: 'reviewOverdue', xp: -10, label: 'Thesis review overdue', at: new Date(late).toISOString() });
+    }
+    const end = t.status === 'CLOSED' && t.exitTime ? new Date(t.exitTime).getTime() : nowMs;
+    const yearAt = new Date(t.entryTime).getTime() + 365 * DAY_MS;
+    if (end >= yearAt) { c.longHolds++; if (!earned.longgame) earned.longgame = new Date(yearAt).toISOString(); }
+    pt.penalties = extra;
+    pt.mistakes = [...pt.entry, ...pt.exit, ...extra].filter(isMistake);
+    for (const e of extra) push(e.at, [e], { key: t.id + ':pen', tradeId: t.id, symbol: t.symbol });
+  }
+  for (const t of trades.filter(isTrading).sort((a, b) => new Date(a.entryTime) - new Date(b.entryTime))) {
     const pt = perTrade[t.id]; if (!pt) continue;
     const errs = [...pt.entry, ...pt.exit].filter((i) => i.xp < 0);
     const extra = [];
@@ -294,7 +369,7 @@ export function computeGame(state) {
 
   // Clean-day bonus: every entry that day passed every entry discipline check.
   const byDay = {};
-  for (const t of trades) (byDay[dayKey(t.entryTime)] ||= []).push(t);
+  for (const t of trades.filter(isTrading)) (byDay[dayKey(t.entryTime)] ||= []).push(t);
   for (const [d, list] of Object.entries(byDay)) {
     const allOk = list.every((t) => (perTrade[t.id]?.entry || []).filter((i) => i.disc).every((i) => i.ok));
     if (allOk) {
@@ -307,7 +382,7 @@ export function computeGame(state) {
 
   // Green month: finished months only.
   const months = {};
-  for (const t of trades) if (t.status === 'CLOSED' && t.exitTime) {
+  for (const t of trades.filter(isTrading)) if (t.status === 'CLOSED' && t.exitTime) {
     const k = t.exitTime.slice(0, 7); (months[k] ||= { n: 0, net: 0 }); months[k].n++; months[k].net += metrics(t).net;
   }
   const thisMonth = new Date().toISOString().slice(0, 7);
@@ -315,13 +390,14 @@ export function computeGame(state) {
     if (k < thisMonth && v.n >= 5 && v.net > 0) { c.greenMonths++; if (!earned.greenmonth) earned.greenmonth = `${k}-28T12:00:00.000Z`; }
   }
 
+  for (const b of BADGES) if (!earned[b.id] && b.val(c) >= b.goal) earned[b.id] = new Date().toISOString();
   events.sort((a, b) => new Date(b.at) - new Date(a.at));
   const xp = Math.max(0, events.reduce((s, e) => s + e.xp, 0));
   const tradeXp = {};
   for (const e of events) if (e.tradeId) tradeXp[e.tradeId] = (tradeXp[e.tradeId] || 0) + e.xp;
 
   // Discipline score over the last 20 closed trades.
-  const recent = trades.filter((t) => t.status === 'CLOSED' && t.exitTime).sort((a, b) => new Date(b.exitTime) - new Date(a.exitTime)).slice(0, 20);
+  const recent = trades.filter((t) => isTrading(t) && t.status === 'CLOSED' && t.exitTime).sort((a, b) => new Date(b.exitTime) - new Date(a.exitTime)).slice(0, 20);
   let pass = 0; let total = 0;
   for (const t of recent) for (const i of [...(perTrade[t.id]?.entry || []), ...(perTrade[t.id]?.exit || [])]) if (i.disc) { total++; if (i.ok) pass++; }
 
@@ -344,7 +420,9 @@ function isClean(pt) {
   return all.filter((i) => i.disc).every((i) => i.ok) && all.some((i) => i.id === 'plan' && i.ok);
 }
 
-function computeQuests({ trades = [], reviews = [], settings = {} }) {
+function computeQuests({ trades: all = [], reviews = [], settings = {} }) {
+  const trades = all.filter(isTrading);
+  const lt = all.filter((t) => isLT(t) && t.status === 'OPEN');
   const today = dayKey(new Date());
   const entered = trades.filter((t) => dayKey(t.entryTime) === today);
   const closedToday = trades.filter((t) => t.status === 'CLOSED' && t.exitTime && dayKey(t.exitTime) === today);
@@ -364,6 +442,10 @@ function computeQuests({ trades = [], reviews = [], settings = {} }) {
     { id: 'review', icon: '🪞', title: 'Weekly review', desc: "Reflect on this week's trades (+40 XP)",
       progress: reviews.some((r) => r.weekStart === weekStart()) ? 1 : 0, total: 1, weekly: true },
   ];
+  if (lt.length) {
+    const ok = lt.filter((t) => !reviewStatus(t).overdue).length;
+    q.push({ id: 'thesis', icon: '📚', title: 'Thesis reviews up to date', desc: `Review each long-term holding every ${REVIEW_DAYS} days (+20 XP)`, progress: ok, total: lt.length });
+  }
   for (const x of q) {
     if (x.done === undefined) x.done = x.total > 0 && x.progress >= x.total;
     x.isIdle = !x.counter && x.total === 0;

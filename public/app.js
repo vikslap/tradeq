@@ -1,5 +1,5 @@
-import { computeGame, metrics, entryChecks, exitChecks, dayKey, tradeKey, weekStart, LEVELS, MISTAKES, MISTAKE_TAGS, mistakeName, isMistake } from './game.js';
-import { computeStats, groupBy, rHistogram } from './stats.js';
+import { computeGame, metrics, entryChecks, exitChecks, dayKey, tradeKey, weekStart, LEVELS, MISTAKES, MISTAKE_TAGS, mistakeName, isMistake, HORIZONS, HORIZON_LABEL, isLT, isTrading, reviewStatus, REVIEW_DAYS } from './game.js';
+import { computeStats, groupBy, rHistogram, investmentStats } from './stats.js';
 import { reconcile } from './sync.js';
 
 // =====================================================================
@@ -46,6 +46,7 @@ const EXCHANGES = ['NSE', 'BSE', 'NFO', 'BFO', 'MCX', 'CDS'];
 const SEGMENTS = [['EQ', 'Equity'], ['FUT', 'Futures'], ['OPT', 'Options'], ['COM', 'Commodity']];
 const EMO_IN = ['Calm', 'Confident', 'Excited', 'Anxious', 'FOMO', 'Bored', 'Revenge', 'Greedy'];
 const EMO_OUT = ['Calm', 'Satisfied', 'Relieved', 'Frustrated', 'Regretful', 'Euphoric'];
+const LT_EXIT_REASONS = ['Thesis broken', 'Sell condition hit', 'Valuation too rich', 'Better opportunity', 'Needed the money', 'Discretionary'];
 const EXIT_REASONS = ['Target hit', 'Stop hit', 'Trailing stop', 'Thesis invalid', 'Time exit', 'Discretionary'];
 const DEFAULT_SETUPS = ['Breakout', 'Range breakout', 'Breakdown', 'Pullback', 'Trend continuation', 'Reversal', 'Support bounce', 'Gap play', 'Earnings'];
 const MANTRAS = ['Plan the trade. Trade the plan.', 'The stop is a promise to yourself.', 'Risk first, reward second.', 'No setup, no trade.', 'Small losses are tuition, not failure.', 'Sitting out is a position too.', 'Process today, profits later.'];
@@ -63,9 +64,9 @@ const S = {
   state: null, game: null, stats: null,
   kite: { configured: false, connected: false, mock: false },
   quotes: {}, quotesAt: null, flash: new Set(),
-  f: { q: '', status: 'all', segment: 'all', setup: 'all' },
+  f: { q: '', status: 'all', segment: 'all', setup: 'all', horizon: 'all' },
   drawerId: null, reviewWeek: null,
-  portfolio: null, sync: null, charts: {},
+  portfolio: null, sync: null, charts: {}, view: 'TRADING',
 };
 
 async function api(url, { method = 'GET', body } = {}) {
@@ -79,8 +80,8 @@ async function reload({ celebrate = false } = {}) {
   const prev = S.game;
   S.state = await api('/api/state');
   S.game = computeGame(S.state);
-  S.stats = computeStats(S.state.trades);
-  if (S.portfolio) S.sync = reconcile(S.state.trades, S.portfolio);
+  S.stats = computeStats(S.state.trades.filter(isTrading));
+  if (S.portfolio) S.sync = reconcile(S.state.trades, S.portfolio, S.state.settings.syncIgnore);
   if (celebrate && prev) celebrateDiff(prev, S.game);
   render();
 }
@@ -89,7 +90,7 @@ async function loadPortfolio({ quiet = true } = {}) {
   if (!S.kite.connected) { S.portfolio = null; S.sync = null; return; }
   try {
     S.portfolio = await api('/api/kite/portfolio');
-    S.sync = reconcile(S.state.trades, S.portfolio);
+    S.sync = reconcile(S.state.trades, S.portfolio, S.state.settings.syncIgnore);
   } catch (e) { if (!quiet) toast(esc(e.message), 'err'); }
 }
 
@@ -111,6 +112,10 @@ async function loadKite() {
   try { S.kite = await api('/api/kite/status'); } catch { S.kite = { configured: false, connected: false }; }
 }
 
+const VIEWS = [['TRADING', 'Trading'], ['LONGTERM', 'Long-term'], ['ALL', 'All']];
+const viewTrades = () => S.state.trades.filter((t) => (S.view === 'ALL' ? true : S.view === 'LONGTERM' ? isLT(t) : isTrading(t)));
+const viewSeg = () => `<div class="seg sm-seg">${VIEWS.map(([v, l]) => `<label><input type="radio" name="view" data-action-view value="${v}" ${S.view === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
+const horizonPill = (t) => `<span class="pill ${isLT(t) ? 'gold' : ''}">${HORIZON_LABEL[t.horizon] || '—'}</span>`;
 const quoteFor = (t) => S.quotes[tradeKey(t)];
 const ltpFor = (t) => quoteFor(t)?.last ?? null;
 
@@ -175,7 +180,7 @@ function pageDashboard() {
     </div>`;
   }
   const L = g.level;
-  const open = trades.filter((t) => t.status === 'OPEN');
+  const open = trades.filter((t) => t.status === 'OPEN' && isTrading(t));
   const lastBadge = g.badges.filter((b) => b.earned).sort((a, b) => new Date(b.earnedAt) - new Date(a.earnedAt))[0];
   const discColor = g.discipline == null ? 'var(--faint)' : g.discipline >= 80 ? 'var(--green)' : g.discipline >= 60 ? 'var(--gold)' : 'var(--red)';
   const quests = [...g.quests, ...syncQuest()];
@@ -204,15 +209,40 @@ function pageDashboard() {
       <header class="card-h"><h3>Open positions <span class="faint" style="font-weight:500">· ${open.length}</span></h3><span class="row"><span class="sub" id="live-note">${liveNote()}</span><span id="sync-badge">${syncBadge()}</span></span></header>
       <div id="open-positions">${openPositionsInner()}</div>
     </section>
+    ${longTermCard()}
     <section class="card">
-      <header class="card-h"><h3>Equity curve</h3><span class="sub">${st.count} closed · max drawdown ${compact(-st.maxDD)}</span></header>
-      ${equityChart(st.curve)}
+      ${(() => { const vs = computeStats(viewTrades()); return `<header class="card-h"><h3>Equity curve</h3>${viewSeg()}</header>
+      <div class="sub" style="margin:-6px 0 10px">${vs.count} closed · net ${compact(vs.net)} · max drawdown ${compact(-vs.maxDD)}</div>
+      ${equityChart(vs.curve)}`; })()}
     </section>
     <section class="card">
       <header class="card-h"><h3>XP feed</h3><a class="link" href="#/achievements">See all →</a></header>
       ${xpFeed(g.events.slice(0, 9))}
     </section>
   </div>`;
+}
+
+function longTermCard() {
+  const lt = S.state.trades.filter(isLT);
+  if (!lt.length) return '';
+  return `<section class="card span-2" id="lt-card">${longTermInner()}</section>`;
+}
+
+function longTermInner() {
+  const inv = investmentStats(S.state.trades, ltpFor);
+  const rows = inv.holdings.sort((a, b) => b.inv - a.inv);
+  return `<header class="card-h"><h3>🌳 Long-term holdings <span class="faint" style="font-weight:500">· ${rows.length}</span></h3>
+      <span class="sub">invested ${compact(inv.invested)} · value ${compact(inv.value)} · <span class="${cls(inv.unrealised)}">${inv.unrealised == null ? '—' : compact(inv.unrealised)}</span> · XIRR <b class="${cls(inv.xirr)}">${pct(inv.xirr)}</b>${inv.sold.length ? ` · realised ${compact(inv.realised)}` : ''}</span></header>
+    ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Symbol</th><th class="r">Qty</th><th class="r">Avg</th><th class="r">LTP</th><th class="r">Value</th><th class="r">P&L</th><th class="r">Return</th><th class="r">CAGR</th><th>Held</th><th>Thesis review</th><th></th></tr></thead><tbody>
+    ${rows.map((h) => { const rs = reviewStatus(h.t); return `<tr class="click" data-action="open-drawer" data-id="${h.t.id}">
+      <td><span class="sym">${esc(h.t.symbol)}</span><span class="exch">${h.t.exchange}</span></td>
+      <td class="r num">${nf0.format(h.t.qty)}</td><td class="r num">${price(h.t.entryPrice)}</td><td class="r num">${price(h.ltp)}</td>
+      <td class="r num">${h.value == null ? '—' : compact(h.value)}</td><td class="r num ${cls(h.pnl)}">${h.pnl == null ? '—' : money(h.pnl, { sign: true, dp: 0 })}</td>
+      <td class="r num ${cls(h.ret)}">${pct(h.ret)}</td><td class="r num ${cls(h.cagr)}">${h.cagr == null ? '<span class="faint">&lt;30d</span>' : pct(h.cagr)}</td>
+      <td class="muted">${hold(h.days)}</td>
+      <td>${rs.overdue ? '<span class="pill red">overdue</span>' : rs.daysLeft <= 14 ? `<span class="pill gold">due in ${rs.daysLeft}d</span>` : `<span class="pill">in ${rs.daysLeft}d</span>`}</td>
+      <td class="r"><button class="btn sm" data-action="thesis-review" data-id="${h.t.id}">Review</button></td></tr>`; }).join('')}</tbody></table></div>`
+    : '<div class="empty-sm">No long-term holdings open.</div>'}`;
 }
 
 function questHtml(q) {
@@ -229,12 +259,12 @@ function questHtml(q) {
 }
 
 function unrealised() {
-  return sum(S.state.trades.filter((t) => t.status === 'OPEN').map((t) => metrics(t, ltpFor(t)).net || 0));
+  return sum(S.state.trades.filter((t) => t.status === 'OPEN' && isTrading(t)).map((t) => metrics(t, ltpFor(t)).net || 0));
 }
 
 function kpiTiles() {
   const st = S.stats;
-  const open = S.state.trades.filter((t) => t.status === 'OPEN');
+  const open = S.state.trades.filter((t) => t.status === 'OPEN' && isTrading(t));
   const haveLtp = open.some((t) => ltpFor(t) != null);
   const openRisk = sum(open.map((t) => Math.max(0, metrics(t).openRisk || 0)));
   const tiles = [
@@ -254,7 +284,7 @@ function liveNote() {
 }
 
 function openPositionsInner() {
-  const open = S.state.trades.filter((t) => t.status === 'OPEN').sort((a, b) => new Date(b.entryTime) - new Date(a.entryTime));
+  const open = S.state.trades.filter((t) => t.status === 'OPEN' && isTrading(t)).sort((a, b) => new Date(b.entryTime) - new Date(a.entryTime));
   if (!open.length) return '<div class="empty-sm">No open positions. Waiting for the right setup is a skill.</div>';
   return `<div class="table-wrap"><table class="tbl"><thead><tr>
     <th>Symbol</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">LTP</th><th class="r">Stop</th><th class="r">Target</th><th class="r">MTM</th><th class="r">R now</th><th>Held</th><th></th></tr></thead><tbody>
@@ -311,6 +341,8 @@ function filteredTrades() {
   return S.state.trades.filter((t) => {
     if (f.status !== 'all' && t.status !== f.status) return false;
     if (f.segment !== 'all' && t.segment !== f.segment) return false;
+    if (f.horizon === 'TRADING' && isLT(t)) return false;
+    if (f.horizon !== 'all' && f.horizon !== 'TRADING' && t.horizon !== f.horizon) return false;
     if (f.setup !== 'all' && (t.setup || '') !== f.setup) return false;
     if (q && !`${t.symbol} ${t.setup} ${t.thesis} ${t.lessons} ${(t.tags || []).join(' ')}`.toLowerCase().includes(q)) return false;
     return true;
@@ -329,12 +361,13 @@ function pageJournal() {
     <div class="toolbar">
       <input class="input search" placeholder="Search symbol, setup, notes…" data-filter="q" value="${esc(f.q)}">
       <div class="seg">${[['all', 'All'], ['OPEN', 'Open'], ['CLOSED', 'Closed']].map(([v, l]) => `<label><input type="radio" name="fstatus" data-filter="status" value="${v}" ${f.status === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+      <select class="input" data-filter="horizon"><option value="all">All types</option><option value="TRADING" ${f.horizon === 'TRADING' ? 'selected' : ''}>Trading only</option>${HORIZONS.map(([v, l]) => `<option value="${v}" ${f.horizon === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select class="input" data-filter="segment"><option value="all">All segments</option>${SEGMENTS.map(([v, l]) => `<option value="${v}" ${f.segment === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select class="input" data-filter="setup"><option value="all">All setups</option>${usedSetups.map((s) => `<option ${f.setup === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
       <span class="muted" id="journal-summary" style="margin-left:auto"></span>
     </div>
     <div class="card" style="padding:6px 14px"><div class="table-wrap"><table class="tbl"><thead><tr>
-      <th>Entered</th><th>Symbol</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Exit / LTP</th><th class="r">Net P&L</th><th class="r">R</th><th>Setup</th><th>Plan</th><th class="r">XP</th></tr></thead>
+      <th>Entered</th><th>Symbol</th><th>Type</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Exit / LTP</th><th class="r">Net P&L</th><th class="r">R</th><th>Setup</th><th>Plan</th><th class="r">XP</th></tr></thead>
       <tbody id="journal-body">${journalRows()}</tbody></table></div></div>`;
 }
 
@@ -344,7 +377,7 @@ function journalRows() {
     const el = $('#journal-summary');
     if (el) { const n = sum(list.filter((t) => t.status === 'CLOSED').map((t) => metrics(t).net)); el.innerHTML = `${list.length} trades · realised <span class="${cls(n)} mono">${money(n, { sign: true })}</span>`; }
   });
-  if (!list.length) return `<tr><td colspan="11"><div class="empty-sm">${S.state.trades.length ? 'No trades match these filters.' : 'No trades yet — log your first one.'}</div></td></tr>`;
+  if (!list.length) return `<tr><td colspan="12"><div class="empty-sm">${S.state.trades.length ? 'No trades match these filters.' : 'No trades yet — log your first one.'}</div></td></tr>`;
   return list.map((t) => {
     const ltp = t.status === 'OPEN' ? ltpFor(t) : null;
     const m = metrics(t, ltp); const x = S.game.tradeXp[t.id] || 0;
@@ -352,6 +385,7 @@ function journalRows() {
     return `<tr class="click" data-action="open-drawer" data-id="${t.id}">
       <td class="muted">${fmtDate(t.entryTime)}</td>
       <td><span class="sym">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span></td>
+      <td>${horizonPill(t)}</td>
       <td><span class="side ${t.side}">${t.side}</span></td>
       <td class="r num">${nf0.format(t.qty)}</td>
       <td class="r num">${price(t.entryPrice)}</td>
@@ -379,8 +413,9 @@ function bars(groups, { fmt = (v) => money(v, { sign: true, dp: 0 }) } = {}) {
 }
 
 function pageInsights() {
-  const st = S.stats; const g = S.game;
-  if (!st.count) return `<div class="page-h"><div><h1>Insights</h1><p>Patterns appear after a few closed trades.</p></div></div><div class="card empty"><div class="big">📊</div><h2>Close a few trades to unlock insights</h2><p>You'll see P&L by setup, weekday and emotion, your R-multiple distribution, and exactly what your mistakes cost you.</p></div>`;
+  const st = computeStats(viewTrades()); const g = S.game;
+  const head = `<div class="page-h"><div><h1>Insights</h1><p>Where your edge lives — and where it leaks.</p></div>${viewSeg()}</div>`;
+  if (!st.count) return `${head}<div class="card empty"><div class="big">📊</div><h2>Close a few trades to unlock insights</h2><p>You'll see P&L by setup, weekday and emotion, your R-multiple distribution, and exactly what your mistakes cost you.</p></div>`;
   const closed = st.closed;
   const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const hist = rHistogram(closed); const hmax = Math.max(...hist.map((h) => h.count), 1);
@@ -408,7 +443,7 @@ function pageInsights() {
     ['Hold: winners', st.avgHoldWin == null ? '—' : hold(st.avgHoldWin), `losers ${st.avgHoldLoss == null ? '—' : hold(st.avgHoldLoss)}`],
     ['Best trade', `<span class="pos">${compact(st.best?.m.net)}</span>`, `${esc(st.best?.t.symbol || '')} · worst ${compact(st.worst?.m.net)}`],
   ];
-  return `<div class="page-h"><div><h1>Insights</h1><p>Where your edge lives — and where it leaks.</p></div></div>
+  return `${head}
   <div class="kpis" style="margin-bottom:16px">${tiles.map(([k, v, s]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('')}</div>
   <div class="insights">
     <section class="card span-2"><header class="card-h"><h3>Discipline pays: clean trades vs trades with a broken rule</h3></header>
@@ -422,6 +457,7 @@ function pageInsights() {
     <section class="card"><header class="card-h"><h3>R-multiple distribution</h3><span class="sub">avg ${rfmt(st.avgR)}</span></header>
       <div class="hist">${hist.map((h) => `<div class="col"><div class="c">${h.count || ''}</div><div class="b" style="height:${(h.count / hmax) * 100}%;background:${h.neg ? 'var(--red)' : 'var(--green)'};opacity:${h.count ? 0.85 : 0.15}"></div><div class="l">${h.label}</div></div>`).join('')}</div>
     </section>
+    ${S.view !== 'LONGTERM' ? `<section class="card"><header class="card-h"><h3>P&L by trade type</h3></header>${bars(groupBy(closed, (t) => HORIZON_LABEL[t.horizon] || '—'))}</section>` : ''}
     <section class="card"><header class="card-h"><h3>P&L by setup</h3></header>${bars(groupBy(closed, (t) => t.setup || 'Untagged'))}</section>
     <section class="card"><header class="card-h"><h3>P&L by entry emotion</h3></header>${bars(groupBy(closed, (t) => t.emotionEntry || 'Not recorded'))}</section>
     <section class="card"><header class="card-h"><h3>P&L by weekday (entry)</h3></header>${bars(groupBy(closed, (t) => WD[new Date(t.entryTime).getDay()]))}</section>
@@ -457,7 +493,7 @@ function pageReview() {
   const ws = S.reviewWeek || weekStart();
   const start = new Date(ws); const end = new Date(start); end.setDate(end.getDate() + 7);
   const inWeek = (iso) => iso && new Date(iso) >= start && new Date(iso) < end;
-  const closed = S.state.trades.filter((t) => t.status === 'CLOSED' && inWeek(t.exitTime)).map((t) => ({ t, m: metrics(t) }));
+  const closed = S.state.trades.filter((t) => isTrading(t) && t.status === 'CLOSED' && inWeek(t.exitTime)).map((t) => ({ t, m: metrics(t) }));
   const entered = S.state.trades.filter((t) => inWeek(t.entryTime));
   const net = sum(closed.map((x) => x.m.net)); const wins = closed.filter((x) => x.m.net > 0).length;
   const rs = closed.map((x) => x.m.r).filter((v) => v != null);
@@ -538,6 +574,9 @@ function pageAchievements() {
       <div class="rules">${RULES.map(([k, v]) => `<div><span class="muted">${k}</span><b class="mono ${v.startsWith('−') ? 'neg' : 'gold'}">${v}</b></div>`).join('')}</div>
       <div class="label" style="margin:16px 0 6px">Lose — the mistakes it catches</div>
       <div class="rules">${PENALTIES.map(([k, v]) => `<div><span class="muted">${k}</span><b class="mono neg">${v}</b></div>`).join('')}</div>
+      <div class="label" style="margin:16px 0 6px">Long-term investments — their own rules</div>
+      <div class="rules">${[['Investment logged', '+10'], ['Investment thesis / none', '+15 / −10'], ['Sell condition / none', '+10 / −5'], ['Thesis review (every 60+ days)', '+20'], ['Review overdue (30 days past due)', '−10'], ['Sold with a reason / without', '+10 / −10'], ['Sold per sell condition / against it', '+15 / −10'], ['Too much capital in one stock', '−10']].map(([k, v]) => `<div><span class="muted">${k}</span><b class="mono ${v.startsWith('−') ? 'neg' : 'gold'}">${v}</b></div>`).join('')}</div>
+      <p class="faint" style="font-size:12px">No stops, R or trading limits apply to long-term holdings, and they don't count toward your discipline score, streak or trading stats.</p>
     </section>
     <section class="card"><header class="card-h"><h3>XP log</h3><span class="sub">${g.events.length} events</span></header>
       <div style="max-height:560px;overflow:auto">${xpFeed(g.events.slice(0, 200))}</div></section>
@@ -585,6 +624,9 @@ function pageSettings() {
       <div class="row"><button class="btn primary" type="submit">Save settings</button><span class="muted" id="settings-msg"></span></div>
     </form>
     <section class="card"><header class="card-h"><h3>Zerodha Kite Connect</h3>${k.mock ? '<span class="pill gold">demo</span>' : k.connected ? '<span class="pill green">connected</span>' : '<span class="pill red">not connected</span>'}</header>${kiteBody}</section>
+    ${(s.syncIgnore || []).length ? `<section class="card"><header class="card-h"><h3>Ignored in Kite sync</h3></header>
+      <p class="muted" style="margin-top:0">These Kite holdings won't be flagged as missing from your journal.</p>
+      ${s.syncIgnore.map((k) => `<div class="mistake"><span class="mono">${esc(k.replace(/^EQ:/, ''))}</span><button class="btn sm ghost" data-action="sync-unignore" data-key="${esc(k)}">Stop ignoring</button></div>`).join('')}</section>` : ''}
     <section class="card"><header class="card-h"><h3>Your data</h3></header>
       <p class="muted" style="margin-top:0">Everything lives in <code>data/journal.json</code> on this computer (a backup copy is made on every start). Export regularly.</p>
       <div class="row wrap"><a class="btn" href="/api/export" download>⬇ Export JSON</a><label class="btn">⬆ Import JSON<input type="file" accept="application/json" id="import-file" hidden></label></div>
@@ -638,6 +680,7 @@ function openTradeForm(t = null, prefill = {}) {
           <div class="field"><label>Exchange</label><select class="input" name="exchange">${EXCHANGES.map((e) => `<option ${v.exchange === e ? 'selected' : ''}>${e}</option>`).join('')}</select></div>
         </div>
         <div class="row wrap" style="gap:16px;align-items:flex-end">
+          <div class="field"><label>Type</label><div class="seg">${radios('horizon', HORIZONS, v.horizon || 'SWING')}</div></div>
           <div class="field"><label>Direction</label><div class="seg">${radios('side', [['LONG', '▲ Long', 'long'], ['SHORT', '▼ Short', 'short']], v.side)}</div></div>
           <div class="field"><label>Segment</label><div class="seg">${radios('segment', SEGMENTS.map(([a, b]) => [a, b]), v.segment)}</div></div>
         </div>
@@ -649,13 +692,14 @@ function openTradeForm(t = null, prefill = {}) {
           <div class="field"><label>Entry time</label><input class="input" name="entryTime" type="datetime-local" value="${toLocalInput(v.entryTime)}"></div>
         </div>
         <div class="grid-4">
-          <div class="field"><label>Planned trigger</label><input class="input num" name="plannedEntry" type="number" step="any" min="0" value="${v.plannedEntry ?? ''}" placeholder="optional"></div>
+          <div class="field trade-only"><label>Planned trigger</label><input class="input num" name="plannedEntry" type="number" step="any" min="0" value="${v.plannedEntry ?? ''}" placeholder="optional"></div>
           <div class="field"><label>Stop-loss</label><input class="input num" name="stopLoss" type="number" step="any" min="0" value="${v.stopLoss ?? ''}"></div>
           <div class="field"><label>Target</label><input class="input num" name="target" type="number" step="any" min="0" value="${v.target ?? ''}"></div>
           <div class="field"><label>Setup</label><input class="input" name="setup" list="setup-list" value="${esc(v.setup)}" placeholder="Breakout"><datalist id="setup-list">${setupOptions().map((s) => `<option value="${esc(s)}">`).join('')}</datalist></div>
         </div>
         ${t ? `<label class="row hidden" id="correction-row" style="font-size:12.5px;color:var(--muted)"><input type="checkbox" name="correction"> This fixes a typo in my original stop (not a stop move)</label>` : ''}
-        <div class="field"><label>Thesis — why this trade, why now, what invalidates it?</label><textarea class="input" name="thesis" placeholder="Breaking a 3-month range on 2× volume, sector flows turning positive. Invalid on a close back inside the range.">${esc(v.thesis)}</textarea></div>
+        <div class="field"><label><span class="trade-only">Thesis — why this trade, why now, what invalidates it?</span><span class="lt-only">Investment thesis — why own this business for years?</span></label><textarea class="input" name="thesis" placeholder="Breaking a 3-month range on 2× volume, sector flows turning positive. Invalid on a close back inside the range.">${esc(v.thesis)}</textarea></div>
+        <div class="field lt-only"><label>Sell condition — what would make you sell?</label><textarea class="input" name="sellCondition" placeholder="Sell if ROCE falls below 15% for two years, promoter pledging rises, or the stock trades above 60× earnings.">${esc(v.sellCondition)}</textarea></div>
         <div class="field"><label>How are you feeling?</label><div class="chips">${radios('emotionEntry', EMO_IN.map((e) => [e, e]), v.emotionEntry)}</div></div>
         <div class="grid-2">
           <div class="field"><label>Confidence</label><div class="seg">${radios('confidence', [1, 2, 3, 4, 5].map((n) => [n, n]), v.confidence)}</div></div>
@@ -668,6 +712,7 @@ function openTradeForm(t = null, prefill = {}) {
     <div class="modal-f"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">${t ? 'Save changes' : 'Log trade'}</button></div>
   </form>`);
   form.dataset.entrySource = v.entrySource || 'manual';
+  form.dataset.horizon = v.horizon || 'SWING';
   if (v.lotSize) form.dataset.lot = v.lotSize;
   form._base = t;
   bindTradeForm(form);
@@ -681,7 +726,8 @@ function draftFromTradeForm(form) {
   const d = {
     ...(base || {}),
     symbol: String(g('symbol') || '').trim().toUpperCase(), exchange: g('exchange'), segment: g('segment') || 'EQ', side: g('side') || 'LONG',
-    qty: num(g('qty')), entryPrice: num(g('entryPrice')), plannedEntry: num(g('plannedEntry')), stopLoss: stop, target: num(g('target')),
+    horizon: g('horizon') || 'SWING', sellCondition: g('sellCondition') || '',
+    qty: num(g('qty')), entryPrice: num(g('entryPrice')), plannedEntry: g('horizon') === 'LONGTERM' ? null : num(g('plannedEntry')), stopLoss: stop, target: num(g('target')),
     setup: g('setup') || '', thesis: g('thesis') || '', emotionEntry: g('emotionEntry') || '', confidence: num(g('confidence')),
     entryTime: fromLocalInput(g('entryTime')), screenshotUrl: g('screenshotUrl') || '', lotSize: num(form.dataset.lot),
     entrySource: form.dataset.entrySource || 'manual',
@@ -743,6 +789,7 @@ function bindTradeForm(form) {
     rerender();
   });
   form.addEventListener('change', (e) => {
+    if (e.target.name === 'horizon') form.dataset.horizon = e.target.value;
     if (e.target.name === 'exchange') { setRadio(form, 'segment', guessSegment(form.exchange.value, form.symbol.value.toUpperCase())); showSymbolQuote(form); }
     rerender();
   });
@@ -752,7 +799,7 @@ function bindTradeForm(form) {
     e.preventDefault();
     const d = draftFromTradeForm(form); const base = form._base;
     const body = {
-      symbol: d.symbol, exchange: d.exchange, segment: d.segment, side: d.side, qty: d.qty, entryPrice: d.entryPrice, plannedEntry: d.plannedEntry,
+      symbol: d.symbol, exchange: d.exchange, segment: d.segment, side: d.side, qty: d.qty, entryPrice: d.entryPrice, plannedEntry: d.plannedEntry, horizon: d.horizon, sellCondition: d.sellCondition,
       stopLoss: d.stopLoss, target: d.target, setup: d.setup, thesis: d.thesis, emotionEntry: d.emotionEntry, confidence: d.confidence,
       entryTime: d.entryTime, screenshotUrl: d.screenshotUrl, lotSize: d.lotSize, entrySource: d.entrySource,
     };
@@ -850,9 +897,10 @@ function openCloseForm(t, prefill = {}) {
           <div class="field"><label>Exit time</label><input class="input" name="exitTime" type="datetime-local" value="${toLocalInput(prefill.exitTime)}"></div>
           <div class="field"><label>Charges (₹)</label><input class="input num" name="charges" type="number" step="any" min="0" value="${t.charges ?? ''}" placeholder="0"></div>
         </div>
-        <div class="field"><label>Best price reached while open <span class="faint" style="font-weight:500">${t.mfePrice != null ? '(tracked from live prices)' : '(optional — catches winners that turned into losers)'}</span></label><input class="input num" name="mfePrice" type="number" step="any" min="0" value="${t.mfePrice ?? ''}" style="max-width:220px"></div>
-        <div class="field"><label>Why did you exit?</label><div class="chips">${radios('exitReason', EXIT_REASONS.map((r) => [r, r]), t.exitReason)}</div></div>
-        <div class="field"><label>Did you follow your plan?</label><div class="seg">${radios('followedPlan', [['yes', '✓ Yes, as planned', 'long'], ['no', '✕ No, I deviated', 'short']], t.followedPlan === true ? 'yes' : t.followedPlan === false ? 'no' : '')}</div></div>
+        <div class="field ${isLT(t) ? 'hidden' : ''}"><label>Best price reached while open <span class="faint" style="font-weight:500">${t.mfePrice != null ? '(tracked from live prices)' : '(optional — catches winners that turned into losers)'}</span></label><input class="input num" name="mfePrice" type="number" step="any" min="0" value="${t.mfePrice ?? ''}" style="max-width:220px"></div>
+        <div class="field"><label>${isLT(t) ? 'Why are you selling?' : 'Why did you exit?'}</label><div class="chips">${radios('exitReason', (isLT(t) ? LT_EXIT_REASONS : EXIT_REASONS).map((r) => [r, r]), t.exitReason)}</div></div>
+        ${isLT(t) && t.sellCondition ? `<div class="note">Your sell condition: ${esc(t.sellCondition)}</div>` : ''}
+        <div class="field"><label>${isLT(t) ? 'Are you selling per your sell condition?' : 'Did you follow your plan?'}</label><div class="seg">${radios('followedPlan', [['yes', '✓ Yes, as planned', 'long'], ['no', '✕ No, I deviated', 'short']], t.followedPlan === true ? 'yes' : t.followedPlan === false ? 'no' : '')}</div></div>
         <div class="field"><label>Mistakes only you know about <span class="faint" style="font-weight:500">(−5 XP each — cheaper than repeating them)</span></label>
           <div class="chips">${Object.entries(MISTAKE_TAGS).map(([k, l]) => `<label><input type="checkbox" name="mistakes" value="${k}" ${(t.mistakes || []).includes(k) ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div></div>
         <div class="field"><label>How do you feel now?</label><div class="chips">${radios('emotionExit', EMO_OUT.map((e) => [e, e]), t.emotionExit)}</div></div>
@@ -992,7 +1040,7 @@ function renderDrawer() {
   const checkList = (items) => items.filter((c) => c.xp || c.disc).map((c) => `<div class="check ${c.xp > 0 || (c.ok && c.disc) ? 'ok' : c.xp < 0 || (c.disc && !c.ok) ? 'bad' : ''}"><span class="ic">${c.ok ? '✓' : '✕'}</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('');
   $('#drawer-root').innerHTML = `<div class="drawer-ov" data-action="close-drawer"></div><aside class="drawer">
     <div class="sec row" style="justify-content:space-between">
-      <div><div class="row"><span class="sym" style="font-size:20px">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span><span class="side ${t.side}">${t.side}</span>${t.status === 'OPEN' ? '<span class="pill violet">open</span>' : pt.clean ? '<span class="pill green">clean trade</span>' : '<span class="pill red">rule broken</span>'}</div>
+      <div><div class="row"><span class="sym" style="font-size:20px">${esc(t.symbol)}</span><span class="exch">${t.exchange}</span><span class="side ${t.side}">${t.side}</span>${horizonPill(t)}${t.status === 'OPEN' ? '<span class="pill violet">open</span>' : isLT(t) ? '<span class="pill">sold</span>' : pt.clean ? '<span class="pill green">clean trade</span>' : '<span class="pill red">rule broken</span>'}</div>
         <div class="muted" style="margin-top:4px;font-size:12.5px">${fmtDT(t.entryTime)}${t.exitTime && t.status === 'CLOSED' ? ' → ' + fmtDT(t.exitTime) : ''} · ${hold(m.holdDays)}</div></div>
       <button class="btn ghost sm" data-action="close-drawer">✕</button>
     </div>
@@ -1004,18 +1052,25 @@ function renderDrawer() {
       ${item('Quantity', nf0.format(t.qty) + (t.lotSize > 1 ? ` <span class="faint">(${(t.qty / t.lotSize).toFixed(t.qty % t.lotSize ? 2 : 0)} lots)</span>` : ''))}
       ${item('Entry', price(t.entryPrice) + (t.entrySource !== 'manual' ? ' <span class="live-tag">⚡</span>' : ''))}
       ${item(t.status === 'OPEN' ? 'LTP' : 'Exit', t.status === 'OPEN' ? price(ltp) : price(t.exitPrice) + (t.exitSource && t.exitSource !== 'manual' ? ' <span class="live-tag">⚡</span>' : ''))}
+      ${isLT(t) ? `${item('Invested', money(t.entryPrice * t.qty, { dp: 0 }))}${item('Return', (() => { const v = t.status === 'OPEN' ? ltp : t.exitPrice; return v ? `<span class="${cls(v - t.entryPrice)}">${pct(v / t.entryPrice - 1)}</span>` : '—'; })())}` : `
       ${item('Stop (initial → now)', `${price(t.initialStop)} → ${price(t.stopLoss)}`)}
       ${item('Target', price(t.target))}
       ${item('Planned R:R', m.plannedRR != null ? '1 : ' + m.plannedRR.toFixed(2) : '—')}
-      ${item('Initial risk', m.riskAmt != null ? money(m.riskAmt, { dp: 0 }) : '—')}
+      ${item('Initial risk', m.riskAmt != null ? money(m.riskAmt, { dp: 0 }) : '—')}`}
       ${item('Charges', t.charges ? money(t.charges) : '—')}
       ${item('Best / worst price seen', t.mfePrice != null ? `${price(t.mfePrice)} / ${price(t.maePrice)}` : '—')}
-      ${item('Setup', esc(t.setup || '—'))}
+      ${isLT(t) ? '' : item('Setup', esc(t.setup || '—'))}
       ${item('Segment', esc(Object.fromEntries(SEGMENTS)[t.segment] || t.segment))}
       ${item('Emotion in → out', `${esc(t.emotionEntry || '—')} → ${esc(t.emotionExit || '—')}`)}
       ${item('Confidence · grade', `${t.confidence ?? '—'}/5 · ${t.rating ? '★'.repeat(t.rating) : '—'}`)}
     </div>
-    ${t.thesis ? `<div class="sec"><div class="label">Thesis</div><div class="prose" style="margin-top:6px">${esc(t.thesis)}</div></div>` : ''}
+    ${t.thesis ? `<div class="sec"><div class="label">${isLT(t) ? 'Investment thesis' : 'Thesis'}</div><div class="prose" style="margin-top:6px">${esc(t.thesis)}</div></div>` : ''}
+    ${isLT(t) ? (() => { const rs = reviewStatus(t); return `<div class="sec">
+      ${t.sellCondition ? `<div class="label">Sell condition</div><div class="prose" style="margin:6px 0 14px">${esc(t.sellCondition)}</div>` : '<div class="warn" style="margin-bottom:12px">No sell condition yet — edit the trade to add one (+10 XP).</div>'}
+      <div class="row" style="justify-content:space-between"><div class="label">Thesis reviews · every ${REVIEW_DAYS} days</div>
+        ${t.status === 'OPEN' ? `<span class="row">${rs.overdue ? '<span class="pill red">overdue</span>' : `<span class="pill">next in ${rs.daysLeft}d</span>`}<button class="btn sm primary" data-action="thesis-review" data-id="${t.id}">＋ Review</button></span>` : ''}</div>
+      ${(t.thesisReviews || []).length ? [...t.thesisReviews].reverse().map((r) => `<div style="padding:10px 0;border-bottom:1px dashed var(--border)"><div class="row" style="justify-content:space-between"><span class="muted" style="font-size:12px">${fmtDate(r.at)} · ${r.thesisIntact ? '<span class="pos">thesis intact</span>' : '<span class="neg">thesis broken</span>'}</span><button class="btn ghost sm" data-action="delete-thesis-review" data-id="${t.id}" data-rid="${r.id}">✕</button></div><div class="prose" style="margin-top:4px">${esc(r.note)}</div></div>`).join('') : '<div class="empty-sm" style="text-align:left">No reviews yet. After results each quarter, note whether the thesis still holds.</div>'}
+    </div>`; })() : ''}
     ${t.lessons ? `<div class="sec"><div class="label">Lesson</div><div class="prose" style="margin-top:6px">${esc(t.lessons)}</div></div>` : ''}
     ${t.screenshotUrl ? `<div class="sec"><a class="link" href="${esc(t.screenshotUrl)}" target="_blank" rel="noopener">📈 Open chart ↗</a></div>` : ''}
     ${t.stopHistory?.length ? `<div class="sec"><div class="label">Stop moves</div>${t.stopHistory.map((h) => `<div class="stat-line"><span class="muted">${fmtDT(h.at)}</span><b>${price(h.from)} → ${price(h.to)}</b></div>`).join('')}</div>` : ''}
@@ -1030,6 +1085,32 @@ function renderDrawer() {
 }
 
 // ---------- Kite fills ----------
+function openThesisReview(t) {
+  const rs = reviewStatus(t);
+  const form = openModal(`<form class="modal narrow" id="thesis-form">
+    <div class="modal-h"><h2>📚 Thesis review · ${esc(t.symbol)}</h2><button type="button" class="btn ghost sm" data-action="close-modal">✕</button></div>
+    <div class="modal-b stack">
+      ${t.thesis ? `<div><div class="label">Your thesis</div><div class="prose" style="margin-top:4px">${esc(t.thesis)}</div></div>` : ''}
+      ${t.sellCondition ? `<div><div class="label">Sell if</div><div class="prose" style="margin-top:4px">${esc(t.sellCondition)}</div></div>` : ''}
+      <div class="field"><label>What changed? Results, management, valuation, competition…</label><textarea class="input" name="note" required placeholder="Q2: revenue +18%, margins steady, debt reduced. Thesis on track; valuation 32× vs my 45× ceiling."></textarea></div>
+      <div class="field"><label>Is the thesis still intact?</label><div class="seg">${radios('thesisIntact', [['yes', '✓ Intact', 'long'], ['no', '✕ Broken', 'short']], 'yes')}</div></div>
+      <div class="note">${rs.overdue ? 'This review is overdue.' : `Next review was due in ${rs.daysLeft} days.`} Reviews earn +20 XP once every 60 days per holding.</div>
+      <div class="err" id="thesis-err"></div>
+    </div>
+    <div class="modal-f"><button type="button" class="btn ghost" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save review</button></div>
+  </form>`);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    try {
+      await api(`/api/trades/${t.id}/thesis-reviews`, { method: 'POST', body: { note: fd.get('note'), thesisIntact: fd.get('thesisIntact') !== 'no' } });
+      closeModal(); await reload({ celebrate: true });
+      if (fd.get('thesisIntact') === 'no') toast(`<div class="t-h">Thesis broken on ${esc(t.symbol)}</div><div class="muted" style="font-size:12px;margin-top:4px">${t.sellCondition ? 'Your sell condition: ' + esc(t.sellCondition) : 'Consider whether it still deserves a place in your portfolio.'}</div>`, 'err');
+    } catch (err) { $('#thesis-err').textContent = err.message; }
+  });
+  setTimeout(() => form.note.focus(), 30);
+}
+
 async function openSync() {
   openModal(`<div class="modal narrow" style="width:min(820px,100%)"><div class="modal-h"><h2>🔗 Journal vs Kite</h2><button class="btn ghost sm" data-action="close-modal">✕</button></div><div class="modal-b" id="sync-body"><div class="muted">Fetching your Kite holdings and positions…</div></div></div>`, { dismissable: true });
   await loadPortfolio({ quiet: false });
@@ -1042,14 +1123,14 @@ async function openSync() {
       const [c, l] = ST[r.status];
       const diff = r.kiteQty - r.journalQty;
       let act = '';
-      if (r.status === 'unlogged') act = `<button class="btn sm primary" data-action="sync-log" data-i="${i}">Log trade</button>`;
+      if (r.status === 'unlogged') act = `<button class="btn sm primary" data-action="sync-log" data-i="${i}">Log trade</button> <button class="btn sm ghost" data-action="sync-ignore" data-i="${i}" title="Stop flagging this holding (e.g. an old investment you don't journal)">Ignore</button>`;
       else if (r.status === 'closed') act = `<button class="btn sm green" data-action="sync-close" data-i="${i}">Close in journal</button>`;
       else if (r.status === 'qty') act = (Math.sign(diff) === Math.sign(r.journalQty) ? `<button class="btn sm" data-action="sync-log" data-i="${i}">Log extra ${nf0.format(Math.abs(diff))}</button> ` : '') + `<button class="btn sm ghost" data-action="sync-review" data-i="${i}">Review</button>`;
       return `<tr><td><span class="sym">${esc(r.symbol)}</span><span class="exch">${r.exchange}</span></td>
         <td class="r num">${r.journalQty ? nf0.format(r.journalQty) : '—'}</td><td class="r num">${r.kiteQty ? nf0.format(r.kiteQty) : '—'}</td>
         <td><span class="pill ${c}">${l}</span></td><td class="r">${act}</td></tr>`;
     }).join('')}</tbody></table></div>
-    <p class="faint" style="font-size:12px;margin-bottom:0">Negative = short. Partly exited a position? Edit the trade's quantity, or close it and log the remainder as a new trade.</p>`
+    ${S.sync.ignored ? `<p class="faint" style="font-size:12px">${S.sync.ignored} ignored holding${S.sync.ignored > 1 ? 's' : ''} hidden — manage in Settings.</p>` : ''}<p class="faint" style="font-size:12px;margin-bottom:0">Negative = short. Partly exited a position? Edit the trade's quantity, or close it and log the remainder as a new trade.</p>`
     : '<div class="empty-sm">Nothing open at Kite or in your journal.</div>'}`;
   render();
 }
@@ -1146,6 +1227,7 @@ async function pollQuotes() {
 
 function paintLive() {
   const op = $('#open-positions'); if (op) op.innerHTML = openPositionsInner();
+  const ltc = $('#lt-card'); if (ltc) ltc.innerHTML = longTermInner();
   const k = $('#kpis'); if (k) k.innerHTML = kpiTiles();
   const ln = $('#live-note'); if (ln) ln.innerHTML = liveNote();
   const jb = $('#journal-body'); if (jb) jb.innerHTML = journalRows();
@@ -1196,6 +1278,20 @@ const actions = {
     const r = S.sync.rows[+el.dataset.i]; closeModal();
     openCloseForm(r.trades[0], r.exitPrice ? { exitPrice: r.exitPrice, exitSource: 'kite-fill' } : {});
   },
+  'sync-ignore': async (el) => {
+    const r = S.sync.rows[+el.dataset.i];
+    await api('/api/settings', { method: 'PUT', body: { syncIgnore: [...(S.state.settings.syncIgnore || []), r.key] } });
+    await reload(); openSync();
+  },
+  'sync-unignore': async (el) => {
+    await api('/api/settings', { method: 'PUT', body: { syncIgnore: (S.state.settings.syncIgnore || []).filter((k) => k !== el.dataset.key) } });
+    await reload(); toast('Kite sync will flag it again');
+  },
+  'thesis-review': (el, e) => { e.stopPropagation(); openThesisReview(findTrade(el.dataset.id)); },
+  'delete-thesis-review': async (el) => {
+    if (!(await confirmBox('Delete this review?', 'Any XP it earned is removed.', 'Delete'))) return;
+    await api(`/api/trades/${el.dataset.id}/thesis-reviews/${el.dataset.rid}`, { method: 'DELETE' }); await reload({ celebrate: true });
+  },
   'sync-review': (el) => { const r = S.sync.rows[+el.dataset.i]; closeModal(); S.drawerId = r.trades[0].id; renderDrawer(); },
   'fill-entry': (el) => {
     const f = S._fills[+el.dataset.i]; closeModal();
@@ -1220,6 +1316,7 @@ function bindGlobal() {
   });
   // Journal filters
   document.addEventListener('input', (e) => {
+    if (e.target.hasAttribute?.('data-action-view')) { S.view = e.target.value; render(); return; }
     const k = e.target.dataset?.filter; if (!k) return;
     S.f[k] = e.target.value; const jb = $('#journal-body'); if (jb) jb.innerHTML = journalRows();
   });
@@ -1251,7 +1348,7 @@ async function boot() {
     $('#main').innerHTML = `<div class="card empty"><div class="big">⚠️</div><h2>Can't reach the TradeQuest server</h2><p>${esc(e.message)}. Is <code>npm start</code> running?</p></div>`;
     return;
   }
-  S.game = computeGame(S.state); S.stats = computeStats(S.state.trades);
+  S.game = computeGame(S.state); S.stats = computeStats(S.state.trades.filter(isTrading));
   loadPortfolio().then(() => render());
   const { params } = route();
   if (params.get('kite') === 'ok') { toast(`<div class="t-h">⚡ Kite connected</div><div class="muted" style="font-size:12px;margin-top:4px">Live prices are on until ~6 AM tomorrow.</div>`); history.replaceState(null, '', '#/settings'); }

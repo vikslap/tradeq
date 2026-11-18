@@ -130,3 +130,26 @@ test('multiple mistakes stack, and repeats cost extra', () => {
   assert.ok(p2.find((x) => x.id === 'stack').xp <= -10);
   assert.ok(p2.some((x) => x.id.startsWith('repeat:')));
 });
+
+test('long-term investments use investing rules and stay out of trading stats/discipline', () => {
+  const lt = base({ id: 'lt', horizon: 'LONGTERM', stopLoss: null, initialStop: null, stopSetAtEntry: false, target: null, setup: '',
+    sellCondition: 'Sell if margins fall two years running', entryTime: '2026-01-05T05:00:00.000Z' });
+  const c = entryChecks(lt, { settings, trades: [lt], dayIndex: 1 });
+  assert.equal(c.find((x) => x.id === 'stop'), undefined);
+  assert.equal(c.reduce((s, x) => s + x.xp, 0), 35); // logged 10 + thesis 15 + sell condition 10
+  const sold = { ...lt, status: 'CLOSED', exitPrice: 500, exitTime: '2026-10-01T05:00:00.000Z' };
+  assert.equal(exitChecks(sold).find((x) => x.id === 'sellNoReason').xp, -10);
+  const g = computeGame({ trades: [sold], reviews: [], settings });
+  assert.equal(g.discipline, null);           // no trading trades → no score
+  assert.equal(g.streak.current, 0);
+});
+
+test('thesis reviews earn XP at most every 60 days; overdue costs XP', () => {
+  const now = Date.now(); const d = (n) => new Date(now - n * 86400000).toISOString();
+  const t = base({ id: 'x', horizon: 'LONGTERM', stopLoss: null, initialStop: null, stopSetAtEntry: false, entryTime: d(400), sellCondition: 'Sell if thesis breaks badly',
+    thesisReviews: [{ id: 'r1', at: d(350), note: 'ok', thesisIntact: true }, { id: 'r2', at: d(340), note: 'again', thesisIntact: true }, { id: 'r3', at: d(250), note: 'fine', thesisIntact: true }] });
+  const g = computeGame({ trades: [t], reviews: [], settings });
+  assert.equal(g.events.filter((e) => e.label.startsWith('Thesis review') && e.xp > 0).length, 2);
+  assert.ok(g.events.some((e) => e.label === 'Thesis review overdue'));
+  assert.ok(g.badges.find((b) => b.id === 'longgame').earned);
+});

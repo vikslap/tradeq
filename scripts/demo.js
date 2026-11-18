@@ -83,6 +83,19 @@ for (let i = 0; i < 34; i++) {
   trades.push(t);
 }
 
+// A few long-term investments (investing rules: thesis, sell condition, quarterly reviews).
+const ltBase = (o) => ({ id: randomUUID(), exchange: 'NSE', segment: 'EQ', side: 'LONG', horizon: 'LONGTERM', entrySource: 'manual', status: 'OPEN',
+  stopLoss: null, initialStop: null, stopSetAtEntry: false, target: null, tags: [], stopWidenCount: 0, stopHistory: [], ...o, createdAt: o.entryTime, updatedAt: o.entryTime });
+const ago = (d) => new Date(now - d * 86400e3).toISOString();
+trades.push(
+  ltBase({ symbol: 'ITC', qty: 60, entryPrice: 352.4, entryTime: ago(540), thesis: 'Cash-rich FMCG compounder with a dominant cigarette franchise funding FMCG and hotels; high dividend payout.', sellCondition: 'Sell if FMCG margins stall for 2 years or cigarette volumes fall sharply after a tax hike.',
+    thesisReviews: [{ id: randomUUID(), at: ago(430), note: 'Q results fine, FMCG EBITDA improving.', thesisIntact: true }, { id: randomUUID(), at: ago(330), note: 'Hotels demerger announced; core thesis intact.', thesisIntact: true }, { id: randomUUID(), at: ago(150), note: 'Volumes steady, dividend raised.', thesisIntact: true }] }),
+  ltBase({ symbol: 'LT', qty: 4, entryPrice: 3290, entryTime: ago(210), thesis: 'Order book at record highs from infra and defence capex; execution track record across cycles.', sellCondition: 'Sell if order inflow falls two quarters in a row or valuation exceeds 40× earnings.',
+    thesisReviews: [{ id: randomUUID(), at: ago(120), note: 'Order inflow +20%, margins guided steady.', thesisIntact: true }] }),
+  ltBase({ symbol: 'TITAN', qty: 5, entryPrice: 3050, entryTime: ago(400), thesis: 'Jewellery formalisation tailwind plus brand moat; consistent 20%+ ROE.', sellCondition: 'Sell if jewellery growth drops below 10% for a year.',
+    status: 'CLOSED', exitPrice: 3480, exitTime: ago(60), exitReason: 'Valuation too rich', followedPlan: true, lessons: 'Sold on valuation, not panic. Revisit if it de-rates.', charges: 40, thesisReviews: [{ id: randomUUID(), at: ago(300), note: 'Growth on track.', thesisIntact: true }] }),
+);
+
 const ws = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x.toLocaleDateString('en-CA'); };
 const reviews = [3, 2, 1].map((w) => {
   const d = new Date(now - w * 7 * 86400e3);

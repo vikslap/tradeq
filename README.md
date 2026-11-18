@@ -53,6 +53,16 @@ Without Kite, everything works in manual mode.
 
 ![Insights](docs/insights.png)
 
+## Trade types and long-term investments
+
+Every entry has a **type**: Intraday, Swing, Positional or Long-term. Trades logged before types existed were tagged automatically: same-day trades as Intraday, up to 20 days as Swing, longer as Positional. You can change any of them.
+
+- **Trading stats stay pure.** The dashboard KPIs, win rate, R, discipline score, clean streak, daily limits and open-risk checks only count Intraday, Swing and Positional trades.
+- **The equity curve and Insights have a filter**: *Trading / Long-term / All*. Insights also shows **P&L by trade type**, so you can see which style actually works for you.
+- **Long-term holdings follow investing rules.** There's no stop, target or R. Instead they're judged on an investment thesis and a **sell condition** ("what would make me sell?"). You do a **thesis review every 90 days** (+20 XP, rewarded at most every 60 days), and you lose XP if a review is 30+ days overdue or if you sell without a reason or against your own sell condition. The concentration limit still applies.
+- **Holdings panel** on the dashboard: invested amount, value, P&L, return, **CAGR per holding** and **portfolio XIRR**, with when each review is due.
+- **Kite sync** matches holdings across types: for example 140 ITC as a swing trade plus 60 as a long-term holding = 200 at Kite. You can **Ignore** old holdings you don't want to journal; manage them in Settings.
+
 ## How XP works
 
 ### Earn

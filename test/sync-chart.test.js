@@ -53,3 +53,15 @@ test('excursions: intraday bars inside the trade only; daily bars skip entry/exi
   assert.deepEqual(excursionsFromCandles(td, daily, 'day'), { mfe: 109, mae: 95 });
   void D;
 });
+
+test('ignored holdings are skipped unless journaled', () => {
+  const r = reconcile([], { holdings: [{ symbol: 'HDFCBANK', exchange: 'NSE', qty: 10 }, { symbol: 'TCS', exchange: 'NSE', qty: 2 }] }, ['EQ:HDFCBANK']);
+  assert.equal(r.rows.length, 1);
+  assert.equal(r.ignored, 1);
+});
+
+test('xirr: doubling in a year ≈ 100%', async () => {
+  const { xirr } = await import('../public/stats.js');
+  const y = 365 * 86400000;
+  assert.ok(Math.abs(xirr([{ t: 0, v: -100 }, { t: y, v: 200 }]) - 1) < 1e-6);
+});
