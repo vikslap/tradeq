@@ -153,3 +153,12 @@ test('thesis reviews earn XP at most every 60 days; overdue costs XP', () => {
   assert.ok(g.events.some((e) => e.label === 'Thesis review overdue'));
   assert.ok(g.badges.find((b) => b.id === 'longgame').earned);
 });
+
+test('equity curve is daily: spread legs closed the same day net out (no fake drawdown)', () => {
+  const leg = (id, side, entry, exit, hour) => base({ id, symbol: id, side, qty: 65, entryPrice: entry, initialStop: null, stopLoss: null,
+    entryTime: '2026-10-23T05:00:00.000Z', status: 'CLOSED', exitPrice: exit, exitTime: `2026-11-10T0${hour}:00:00.000Z` });
+  const s = computeStats([leg('short', 'SHORT', 126, 1918.3, 4), leg('long', 'LONG', 103.9, 1805.3, 5)]);
+  assert.equal(s.curve.length, 2);               // zero point + one day
+  assert.ok(Math.abs(s.curve[1].v - (1701.4 - 1792.3) * 65) < 1e-6);
+  assert.ok(s.maxDD < 6000);                     // not the ~₹1.16L intra-day sequence
+});

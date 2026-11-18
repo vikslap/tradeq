@@ -1,7 +1,7 @@
 import { computeGame, metrics, entryChecks, exitChecks, dayKey, tradeKey, weekStart, LEVELS, MISTAKES, MISTAKE_TAGS, mistakeName, isMistake, HORIZONS, HORIZON_LABEL, isLT, isTrading, reviewStatus, REVIEW_DAYS } from './game.js';
 import { computeStats, groupBy, rHistogram, investmentStats } from './stats.js';
 import { reconcile } from './sync.js';
-import { mountTradeChart, INTERVAL_LABEL } from './tradechart.js';
+import { mountTradeChart, mountEquityChart, INTERVAL_LABEL } from './tradechart.js';
 import { parseTradebook, planImport } from './tradebook.js';
 
 // =====================================================================
@@ -138,6 +138,7 @@ function render() {
   renderTop();
   const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, achievements: pageAchievements, settings: pageSettings };
   $('#main').innerHTML = (pages[page] || pageDashboard)();
+  mountEquity();
   if (page === 'settings') bindSettings();
   if (page === 'review') bindReview();
   if (S.drawerId) renderDrawer();
@@ -216,7 +217,7 @@ function pageDashboard() {
     ${longTermCard()}
     <section class="card">
       ${(() => { const vs = computeStats(viewTrades()); return `<header class="card-h"><h3>Equity curve</h3>${viewSeg()}</header>
-      <div class="sub" style="margin:-6px 0 10px">${vs.count} closed · net ${compact(vs.net)} · max drawdown ${compact(-vs.maxDD)}</div>
+      <div class="sub" style="margin:-6px 0 10px">${vs.count} closed · net ${compact(vs.net)} · max drawdown ${compact(-vs.maxDD)} · daily, by exit date</div>
       ${equityChart(vs.curve)}`; })()}
     </section>
     <section class="card">
@@ -318,25 +319,14 @@ function xpFeed(events) {
 
 function equityChart(curve) {
   if (curve.length < 2) return '<div class="empty-sm">Close a trade to start your equity curve.</div>';
-  const W = 600; const H = 230; const PL = 6; const PR = 6; const PT = 18; const PB = 18;
-  const vals = curve.map((p) => p.v);
-  let min = Math.min(0, ...vals); let max = Math.max(0, ...vals);
-  if (max === min) max += 1;
-  const pad = (max - min) * 0.1; min -= pad; max += pad;
-  const X = (i) => PL + (i * (W - PL - PR)) / (curve.length - 1);
-  const Y = (v) => PT + ((max - v) / (max - min)) * (H - PT - PB);
-  const line = curve.map((p, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join('');
-  const area = `${line}L${X(curve.length - 1).toFixed(1)},${Y(0).toFixed(1)}L${X(0).toFixed(1)},${Y(0).toFixed(1)}Z`;
-  const last = vals.at(-1); const c = last >= 0 ? '#22c55e' : '#f4506b';
-  const dots = curve.length <= 80 ? curve.slice(1).map((p, i) => `<circle cx="${X(i + 1).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.6" fill="${metrics(p.t).net >= 0 ? '#22c55e' : '#f4506b'}"><title>${esc(p.t.symbol)} ${money(metrics(p.t).net, { sign: true })} → ${money(p.v)}</title></circle>`).join('') : '';
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-    <defs><linearGradient id="eqg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${c}" stop-opacity=".32"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></linearGradient></defs>
-    <line x1="${PL}" x2="${W - PR}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" style="stroke:var(--border-2)" stroke-dasharray="4 4"/>
-    <path d="${area}" fill="url(#eqg)"/>
-    <path d="${line}" fill="none" stroke="${c}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
-    ${dots}
-    <text x="${W - PR}" y="12" text-anchor="end">${esc(money(last, { dp: 0 }))}</text>
-  </svg>`;
+  S._eqCurve = curve;
+  return '<div class="equity-host"></div>';
+}
+
+function mountEquity() {
+  S.eqChart?.destroy(); S.eqChart = null;
+  const host = $('.equity-host');
+  if (host && S._eqCurve) S.eqChart = mountEquityChart(host, S._eqCurve, { height: 240 });
 }
 
 // ---------- Journal ----------
@@ -443,7 +433,7 @@ function pageInsights() {
     ['Net P&L', `<span class="${cls(st.net)}">${compact(st.net)}</span>`, `${st.count} closed`],
     ['Expectancy', `<span class="${cls(st.expectancy)}">${compact(st.expectancy)}</span>`, 'avg net per trade'],
     ['Avg win', `<span class="pos">${compact(st.avgWin)}</span>`, `avg loss ${compact(st.avgLoss)} · payoff ${st.avgWin && st.avgLoss ? (st.avgWin / -st.avgLoss).toFixed(2) : '—'}`],
-    ['Max drawdown', `<span class="neg">${compact(-st.maxDD)}</span>`, 'peak-to-trough, realised'],
+    ['Max drawdown', `<span class="neg">${compact(-st.maxDD)}</span>`, 'peak-to-trough, daily realised'],
     ['Hold: winners', st.avgHoldWin == null ? '—' : hold(st.avgHoldWin), `losers ${st.avgHoldLoss == null ? '—' : hold(st.avgHoldLoss)}`],
     ['Best trade', `<span class="pos">${compact(st.best?.m.net)}</span>`, `${esc(st.best?.t.symbol || '')} · worst ${compact(st.worst?.m.net)}`],
   ];

@@ -14,13 +14,21 @@ export function computeStats(trades) {
   const grossLoss = -sum(losses.map((x) => x.m.net));
   const rs = closed.map((x) => x.m.r).filter((v) => v != null);
 
+  // Equity curve and drawdown are measured per day (by exit date), so legs of a spread
+  // or a scale-out closed on the same day net out instead of showing a fake plunge.
+  const daily = {}; const dayCount = {};
+  for (const x of closed) { const d = dayKey(x.t.exitTime); daily[d] = (daily[d] || 0) + x.m.net; dayCount[d] = (dayCount[d] || 0) + 1; }
   let eq = 0; let peak = 0; let maxDD = 0;
-  const curve = closed.length ? [{ at: closed[0].t.entryTime, v: 0 }] : [];
-  const daily = {};
-  for (const x of closed) {
-    eq += x.m.net; peak = Math.max(peak, eq); maxDD = Math.max(maxDD, peak - eq);
-    curve.push({ at: x.t.exitTime, v: eq, t: x.t });
-    const d = dayKey(x.t.exitTime); daily[d] = (daily[d] || 0) + x.m.net;
+  const curve = [];
+  if (closed.length) {
+    const start = dayKey(closed.reduce((m, x) => (x.t.entryTime < m ? x.t.entryTime : m), closed[0].t.entryTime));
+    const first = Object.keys(daily).sort()[0];
+    const prev = new Date(`${first}T12:00:00`); prev.setDate(prev.getDate() - 1);
+    curve.push({ day: start < first ? start : dayKey(prev), v: 0, pnl: 0, n: 0 });
+  }
+  for (const d of Object.keys(daily).sort()) {
+    eq += daily[d]; peak = Math.max(peak, eq); maxDD = Math.max(maxDD, peak - eq);
+    curve.push({ day: d, v: eq, pnl: daily[d], n: dayCount[d] });
   }
 
   return {

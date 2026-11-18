@@ -1,5 +1,5 @@
 // Interactive trade chart built on TradingView Lightweight Charts (Apache-2.0, vendored).
-import { createChart, CandlestickSeries, HistogramSeries, LineSeries, LineStyle, LineType, CrosshairMode, createSeriesMarkers } from './vendor/lightweight-charts.mjs';
+import { createChart, CandlestickSeries, HistogramSeries, LineSeries, BaselineSeries, LineStyle, LineType, CrosshairMode, createSeriesMarkers } from './vendor/lightweight-charts.mjs';
 
 const IST = 19800; // seconds
 const nf = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -161,4 +161,41 @@ export function mountTradeChart(container, t, { candles, interval }, opts = {}) 
     },
     destroy() { chart.remove(); },
   };
+}
+
+
+/** Daily equity curve: green above zero, red below, with a hover readout. */
+export function mountEquityChart(container, curve, { height = 240 } = {}) {
+  const C = { text: css('--muted'), border: css('--border'), green: css('--green'), red: css('--red') };
+  const el = document.createElement('div');
+  el.className = 'tq-chart'; el.style.height = `${height}px`;
+  container.replaceChildren(el);
+  const legend = document.createElement('div'); legend.className = 'tq-legend'; el.appendChild(legend);
+  const chart = createChart(el, {
+    autoSize: true,
+    layout: { background: { color: 'transparent' }, textColor: C.text, fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 11, attributionLogo: true },
+    grid: { vertLines: { visible: false }, horzLines: { color: alpha(C.border, 0.35) } },
+    rightPriceScale: { borderColor: C.border },
+    timeScale: { borderColor: C.border, rightOffset: 2 },
+    crosshair: { mode: CrosshairMode.Magnet },
+    localization: { priceFormatter: (p) => `₹${nfc.format(p)}` },
+    handleScroll: false, handleScale: false,
+  });
+  const s = chart.addSeries(BaselineSeries, {
+    baseValue: { type: 'price', price: 0 }, lineWidth: 2, priceLineVisible: false,
+    topLineColor: C.green, topFillColor1: alpha(C.green, 0.28), topFillColor2: alpha(C.green, 0.02),
+    bottomLineColor: C.red, bottomFillColor1: alpha(C.red, 0.02), bottomFillColor2: alpha(C.red, 0.28),
+  });
+  s.setData(curve.map((p) => ({ time: p.day, value: p.v })));
+  s.createPriceLine({ price: 0, color: alpha(C.text, 0.5), lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: false });
+  const money = (v) => `${v < 0 ? '−' : v > 0 ? '+' : ''}₹${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(Math.abs(v))}`;
+  const show = (p) => {
+    if (!p) { legend.innerHTML = ''; return; }
+    const d = new Date(`${p.day}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+    legend.innerHTML = `<span>${d}</span><span>Equity <b style="color:${p.v >= 0 ? C.green : C.red}">${money(p.v)}</b></span>${p.n ? `<span>Day <b style="color:${p.pnl >= 0 ? C.green : C.red}">${money(p.pnl)}</b> · ${p.n} trade${p.n > 1 ? 's' : ''}</span>` : ''}`;
+  };
+  show(curve.at(-1));
+  chart.subscribeCrosshairMove((param) => { show(param.time ? curve.find((p) => p.day === param.time) : curve.at(-1)); });
+  chart.timeScale().fitContent();
+  return { chart, destroy() { chart.remove(); } };
 }
