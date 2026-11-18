@@ -81,6 +81,7 @@ A separate section for paper trading on **real historical Kite candles**. Nothin
 
 - **Start a replay**: type a stock or index (e.g. `RELIANCE`, `NIFTY 50`) or press **🎲 Surprise me** for a random liquid NSE stock on a random past date. Choose daily, hourly, 15-min or 5-min candles.
 - **Blind mode** (on by default) hides the name and dates, so you trade the chart, not what you remember. Everything is revealed at the end.
+- **🎲 New chart**: don't like the chart? Skip to a fresh surprise with the same settings. With no paper trades it's simply discarded; with trades, the session is saved to your history first.
 - **Step through** bar by bar (**→** or Space), +10 bars, or auto-play at 1× / 2× / 5×.
 - **Orders fill realistically**: market orders fill at the next bar's open. Stops and targets fill intrabar, **at the open if price gaps past them** (so gap-downs hurt, just like real life). If one bar hits both, the stop is assumed first.
 - Size to your ₹ risk in one click, trail the stop (free) or widen it (costs XP), and exit at the next open.

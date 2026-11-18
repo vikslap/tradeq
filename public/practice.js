@@ -170,6 +170,7 @@ function gameShell() {
         <button class="btn" data-pa="next">▶ Next bar <span class="faint">(→)</span></button>
         <button class="btn" data-pa="skip">⏭ +10 bars</button>
         <button class="btn" data-pa="auto" id="pa-auto">⏯ Auto-play</button>
+        <button class="btn" data-pa="skip-chart" title="Don't like this chart? Load a new surprise chart">🎲 New chart</button>
         <div class="seg sm-seg">${[1, 2, 5].map((x) => `<label><input type="radio" name="pa-speed" value="${x}" ${x === 1 ? 'checked' : ''}><span>${x}×</span></label>`).join('')}</div>
         <span style="flex:1"></span><span class="faint" id="pa-left"></span>
       </div></section>
@@ -201,7 +202,7 @@ function bindSetup(form) {
   });
 }
 
-async function startSession(body) {
+async function startSession(body, { rethrow = false } = {}) {
   const err = document.getElementById('pa-err');
   try {
     if (err) err.textContent = 'Loading candles…';
@@ -213,7 +214,37 @@ async function startSession(body) {
     await ctx.api(`/api/practice/sessions/${session.id}`, { method: 'PUT', body: { startIndex: session.startIndex, cursor: session.cursor } });
     G = { session, data, cursor: session.cursor, position: null, trades: [], pendingExit: false, pending: null };
     await ctx.reload();
-  } catch (e) { if (err) err.textContent = e.message; else ctx.toast(ctx.esc(e.message), 'err'); }
+  } catch (e) { if (rethrow) throw e; if (err) err.textContent = e.message; else ctx.toast(ctx.esc(e.message), 'err'); }
+}
+
+/** Load a fresh surprise chart with the same settings; retries if a pick lacks history. */
+async function newSurprise(opts, avoid) {
+  const root = document.getElementById('pa-root');
+  if (root) root.innerHTML = '<div class="card"><div class="chart-loading" style="height:520px">🎲 Loading a new chart…</div></div>';
+  let last = null;
+  for (let i = 0; i < 4; i++) {
+    let symbol;
+    do symbol = SURPRISE[Math.floor(Math.random() * SURPRISE.length)]; while (symbol === avoid);
+    try {
+      await startSession({ symbol, exchange: 'NSE', interval: opts.interval, start: randomStart(opts.interval), blind: opts.blind, capital: opts.capital, risk: opts.risk }, { rethrow: true });
+      return;
+    } catch (e) { last = e; }
+  }
+  ctx.toast(ctx.esc(last?.message || 'Could not load a new chart'), 'err');
+  await ctx.reload();
+}
+
+async function skipChart() {
+  if (!G) return;
+  stopAuto(); clearTimeout(saveTimer);
+  const s = G.session; const taken = G.trades.length > 0 || G.position;
+  if (taken && !window.confirm('You have paper trades on this chart. Save this session to your history and load a new chart?')) return;
+  if (taken) await finishSession({ review: false });
+  else {
+    G.draw?.destroy(); G = null;
+    await ctx.api(`/api/practice/sessions/${s.id}`, { method: 'DELETE' }).catch(() => {});
+  }
+  await newSurprise({ interval: s.interval, blind: s.blind, capital: s.capital, risk: s.risk }, s.symbol);
 }
 
 async function loadCandles(s) {
@@ -342,7 +373,9 @@ function toggleAuto() {
   document.getElementById('pa-auto').textContent = '⏸ Pause';
 }
 
-async function endSession() {
+function endSession() { return finishSession({ review: true }); }
+
+async function finishSession({ review }) {
   stopAuto(); clearTimeout(saveTimer);
   if (G.position) { // close any open position at the last close
     const c = lastBar();
@@ -351,6 +384,7 @@ async function endSession() {
   }
   const s = await ctx.api(`/api/practice/sessions/${G.session.id}`, { method: 'PUT', body: { cursor: G.cursor, trades: G.trades, position: null, status: 'done' } });
   const done = G; done.draw?.destroy(); G = null;
+  if (!review) return;
   await ctx.reload();
   openReview(s, done.data);
 }
@@ -454,6 +488,7 @@ export function practiceAction(name, el) {
     case 'skip': return G && next(10);
     case 'auto': return G && toggleAuto();
     case 'end': return G && endSession();
+    case 'skip-chart': return skipChart();
     case 'close': if (G?.position) { G.pendingExit = true; next(); } return;
     case 'size': {
       const f = document.getElementById('pa-order'); const c = lastBar(); const stop = Number(f.stop.value);
