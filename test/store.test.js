@@ -67,3 +67,11 @@ test('options can close at 0 (expired worthless); stocks cannot', () => {
   const e = store.createTrade(t0);
   assert.throws(() => store.updateTrade(e.id, { status: 'CLOSED', exitPrice: 0, exitTime: '2026-11-17T10:00:00.000Z' }), /Exit price/);
 });
+
+test('tradebook import only removes imported trades, never journaled ones', () => {
+  const mine = store.createTrade(t0);
+  const imp = store.createTrade(t0); imp.imported = true;
+  const res = store.importTradebook({ remove: [mine.id, imp.id] });
+  assert.equal(res.removed, 1);
+  assert.ok(store.getState().trades.some((t) => t.id === mine.id));
+});

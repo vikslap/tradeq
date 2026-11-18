@@ -1134,7 +1134,8 @@ function renderImportPlan() {
   const P = S._tb; const body = $('#tb-body'); if (!body) return;
   const pnl = (r) => (r.status === 'CLOSED' ? (r.exitPrice - r.entryPrice) * r.qty * (r.side === 'SHORT' ? -1 : 1) : null);
   const typeSel = (i, v) => `<select class="input" style="padding:5px 8px;width:auto" data-tb-type="${i}">${HORIZONS.map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
-  const nothing = !P.dateFixes.length && !P.closes.length && !P.newTrades.length;
+  const nothing = !P.repairs.length && !P.dateFixes.length && !P.closes.length && !P.newTrades.length;
+  const tripLine = (r) => `<span class="side ${r.side}">${r.side}</span> ${nf0.format(r.qty)} · ${fmtDate(r.entryTime)} @ ${price(r.entryPrice)} → ${r.expired ? `expired ${fmtDate(r.exitTime)} @ ${price(r.exitPrice)}` : r.status === 'CLOSED' ? `${fmtDate(r.exitTime)} @ ${price(r.exitPrice)}` : 'open'}`;
   body.innerHTML = `
     <div class="row wrap" style="gap:8px;margin-bottom:14px">
       <span class="pill">${P.fills} fills · ${fmtDate(P.from)} → ${fmtDate(P.to)}</span>
@@ -1142,6 +1143,12 @@ function renderImportPlan() {
       ${P.dupes.length ? `<span class="pill">${P.dupes.length} already in journal</span>` : ''}
     </div>
     ${nothing ? '<div class="empty-sm">Nothing new to import from this file — your journal already has all of it.</div>' : ''}
+    ${P.repairs.length ? `<section style="margin-bottom:18px"><h3 style="margin-bottom:6px">🔧 Re-pair earlier imports <span class="faint">(${P.repairs.length})</span></h3>
+      <p class="faint" style="font-size:12px;margin:0 0 8px">This file has trades an earlier import missed, so these instruments are rebuilt from every fill. The earlier imported trades are replaced (notes on them are lost).</p>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th><input type="checkbox" data-tb-all="repair" checked></th><th>Instrument</th><th>Was</th><th>Becomes</th></tr></thead><tbody>
+      ${P.repairs.map((r, i) => `<tr><td><input type="checkbox" data-tb="repair" value="${i}" checked></td><td><span class="sym">${esc(r.symbol)}</span></td>
+        <td class="num" style="white-space:normal">${r.replaces.map((t) => `<div class="faint">${tripLine(t)}</div>`).join('')}</td>
+        <td class="num" style="white-space:normal">${r.trips.map((t) => `<div>${tripLine(t)}${t.expired ? ` <input class="input num" style="width:86px;padding:3px 6px" type="number" step="any" min="0" data-tb-rexit="${i}:${r.trips.indexOf(t)}" value="${t.exitPrice ?? ''}" placeholder="settle">` : ''}</div>`).join('')}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
     ${P.dateFixes.length ? `<section style="margin-bottom:18px"><h3 style="margin-bottom:6px">📅 Fix entry dates on open trades <span class="faint">(${P.dateFixes.length})</span></h3>
       <div class="table-wrap"><table class="tbl"><thead><tr><th><input type="checkbox" data-tb-all="fix" checked></th><th>Instrument</th><th>In journal</th><th>From tradebook</th><th></th></tr></thead><tbody>
       ${P.dateFixes.map((f, i) => `<tr><td><input type="checkbox" data-tb="fix" value="${i}" checked></td><td><span class="sym">${esc(f.trade.symbol)}</span> ${horizonPill(f.trade)}</td>
@@ -1169,17 +1176,23 @@ async function applyImport() {
   const exits = Object.fromEntries($$('[data-tb-exit]').map((x) => [x.dataset.tbExit, x.value]));
   const missing = picked('new').filter((i) => P.newTrades[i].expired && (exits[i] === '' || exits[i] == null));
   if (missing.length) { $('#tb-err').textContent = `Enter the settlement price for ${missing.map((i) => P.newTrades[i].symbol).join(', ')} (use 0 if it expired worthless).`; return; }
+  const rexits = Object.fromEntries($$('[data-tb-rexit]').map((x) => [x.dataset.tbRexit, x.value]));
+  const reps = picked('repair').map((i) => P.repairs[i]);
+  const repTrips = reps.flatMap((r) => r.trips.map((t, j) => ({ ...t, exitPrice: t.expired ? (rexits[`${P.repairs.indexOf(r)}:${j}`] === '' ? null : Number(rexits[`${P.repairs.indexOf(r)}:${j}`])) : t.exitPrice })));
+  if (repTrips.some((t) => t.expired && (t.exitPrice == null || Number.isNaN(t.exitPrice)))) { $('#tb-err').textContent = 'Enter the settlement price for expired contracts being re-paired (0 if worthless).'; return; }
+  const toBody = (r, horizon) => ({ symbol: r.symbol, exchange: r.exchange, segment: r.segment, side: r.side, qty: r.qty, entryPrice: r.entryPrice, entryTime: r.entryTime, status: r.status, exitPrice: r.exitPrice, exitTime: r.exitTime, horizon: horizon || r.horizon, fillIds: r.fillIds });
   const payload = {
+    remove: reps.flatMap((r) => r.replaces.map((t) => t.id)),
     updates: picked('fix').map((i) => ({ id: P.dateFixes[i].trade.id, entryTime: P.dateFixes[i].entryTime, entryPrice: P.dateFixes[i].entryPrice, fillIds: P.dateFixes[i].fillIds })),
     closes: picked('close').map((i) => ({ id: P.closes[i].trade.id, exitPrice: P.closes[i].exitPrice, exitTime: P.closes[i].exitTime, fillIds: P.closes[i].fillIds })),
-    create: picked('new').map((i) => { const r = P.newTrades[i]; return { symbol: r.symbol, exchange: r.exchange, segment: r.segment, side: r.side, qty: r.qty, entryPrice: r.entryPrice, entryTime: r.entryTime, status: r.status, exitPrice: r.expired ? Number(exits[i]) : r.exitPrice, exitTime: r.exitTime, horizon: types[i] || r.horizon, fillIds: r.fillIds }; }),
+    create: [...repTrips.map((r) => toBody(r)), ...picked('new').map((i) => { const r = P.newTrades[i]; return { symbol: r.symbol, exchange: r.exchange, segment: r.segment, side: r.side, qty: r.qty, entryPrice: r.entryPrice, entryTime: r.entryTime, status: r.status, exitPrice: r.expired ? Number(exits[i]) : r.exitPrice, exitTime: r.exitTime, horizon: types[i] || r.horizon, fillIds: r.fillIds }; })],
   };
   const btn = $('[data-action="tradebook-apply"]'); if (btn) btn.disabled = true;
   try {
     const res = await api('/api/import/tradebook', { method: 'POST', body: payload });
     closeModal(); S._tb = null;
     await reload({ celebrate: true });
-    toast(`<div class="t-h">⬆ Tradebook imported</div><div class="muted" style="font-size:12px;margin-top:4px">${res.created} trades added · ${res.updated} entry dates fixed · ${res.closed} closed</div>`);
+    toast(`<div class="t-h">⬆ Tradebook imported</div><div class="muted" style="font-size:12px;margin-top:4px">${res.created} trades added · ${res.updated} entry dates fixed · ${res.closed} closed${res.removed ? ` · ${res.removed} re-paired` : ''}</div>`);
   } catch (e) { $('#tb-err').textContent = e.message; if (btn) btn.disabled = false; }
 }
 

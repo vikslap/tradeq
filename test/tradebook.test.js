@@ -104,3 +104,16 @@ test('options left open past expiry are proposed as expired at 0', () => {
   assert.equal(t.expired, true);
   assert.equal(t.exitPrice, 0);
 });
+
+test('re-import repairs a short leg the old importer dropped (your 23300 CE case)', () => {
+  const fills = parseTradebook([FOHEAD,
+    fo('NIFTY26N1723300CE', '2026-10-23', 'sell', 65, 126, 'S1', '2026-11-17'),
+    fo('NIFTY26N1723300CE', '2026-11-10', 'buy', 65, 1918.3, 'B1', '2026-11-17')].join('\n'));
+  // What the buggy import left behind: an imported OPEN LONG built from the buy-back only (labelled NSE).
+  const bogus = { id: 'bad', imported: true, symbol: 'NIFTY26N1723300CE', exchange: 'NSE', segment: 'EQ', side: 'LONG', qty: 65, entryPrice: 1918.3, entryTime: fills[1].time, status: 'OPEN', fillIds: ['B1'] };
+  const p = planImport([bogus], fills, '2026-11-18');
+  assert.equal(p.closes.length, 0);
+  assert.equal(p.repairs.length, 1);
+  assert.equal(p.repairs[0].replaces[0].id, 'bad');
+  assert.deepEqual(p.repairs[0].trips.map((t) => [t.side, t.status, t.qty, t.entryPrice, t.exitPrice]), [['SHORT', 'CLOSED', 65, 126, 1918.3]]);
+});

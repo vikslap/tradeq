@@ -152,10 +152,45 @@ const round = (v) => Math.round(v * 100) / 100;
  *  - dupes:     trips already in the journal
  */
 export function planImport(journal, fills, today = istDay(new Date().toISOString())) {
-  const known = new Set(journal.flatMap((t) => t.fillIds || []));
-  const fresh = fills.filter((f) => !known.has(f.id));
+  const owner = new Map();
+  for (const t of journal) for (const id of t.fillIds || []) owner.set(id, t);
+  const fileIds = new Set(fills.map((f) => f.id));
+
+  // Instruments that have new fills AND earlier *imported* trades built only from this
+  // file's fills get re-paired from scratch: an earlier import may have paired them
+  // wrongly (e.g. a short leg that was skipped), and patching around it can't fix that.
+  const byKey = {};
+  for (const f of fills) (byKey[instKey(f.exchange, f.symbol)] ||= []).push(f);
+  const repairs = [];
+  const repairKeys = new Set();
+  for (const [key, list] of Object.entries(byKey)) {
+    const fresh = list.filter((f) => !owner.has(f.id));
+    const prior = [...new Set(list.filter((f) => owner.has(f.id)).map((f) => owner.get(f.id)))];
+    if (!fresh.length || !prior.length) continue;
+    // Also catch earlier imports stored under the cash-equity key before the F&O fix.
+    const sameInst = journal.filter((t) => t.imported && t.symbol === list[0].symbol && (t.fillIds || []).some((id) => fileIds.has(id)));
+    const olds = [...new Set([...prior, ...sameInst])];
+    if (olds.every((t) => t.imported && (t.fillIds || []).every((id) => fileIds.has(id)))) {
+      repairKeys.add(key);
+      repairs.push({ key, symbol: list[0].symbol, replaces: olds, trips: [] });
+    }
+  }
+
+  const known = new Set(owner.keys());
+  const fresh = fills.filter((f) => repairKeys.has(instKey(f.exchange, f.symbol)) || !known.has(f.id));
   const alreadyImported = fills.length - fresh.length;
-  const { trips, orphans } = buildTrips(fresh);
+  const { trips: allTrips, orphans } = buildTrips(fresh);
+  const replacedIds = new Set(repairs.flatMap((r) => r.replaces.map((t) => t.id)));
+  journal = journal.filter((t) => !replacedIds.has(t.id));
+  const trips = [];
+  for (const trip of allTrips) {
+    const r = repairs.find((x) => x.key === trip.key);
+    if (!r) { trips.push(trip); continue; }
+    if (trip.status === 'OPEN' && trip.expiry && trip.expiry < today) {
+      const exitTime = new Date(`${trip.expiry}T15:30:00+05:30`).toISOString();
+      r.trips.push({ ...trip, status: 'CLOSED', expired: true, exitPrice: trip.segment === 'OPT' ? 0 : null, exitTime, horizon: guessHorizon(trip.entryTime, exitTime) });
+    } else r.trips.push({ ...trip, horizon: guessHorizon(trip.entryTime, trip.status === 'CLOSED' ? trip.exitTime : null) });
+  }
 
   const openJ = journal.filter((t) => t.status === 'OPEN');
   const usedJ = new Set();
@@ -187,10 +222,10 @@ export function planImport(journal, fills, today = istDay(new Date().toISOString
   }
 
   // Sells of shares bought before the file's range: close a matching open journal trade.
-  const byKey = {};
-  for (const o of orphans) (byKey[instKey(o.exchange, o.symbol)] ||= []).push(o);
+  const orphanKeys = {};
+  for (const o of orphans) (orphanKeys[instKey(o.exchange, o.symbol)] ||= []).push(o);
   const closes = []; const unmatched = [];
-  for (const [key, list] of Object.entries(byKey)) {
+  for (const [key, list] of Object.entries(orphanKeys)) {
     const qty = qsum(list);
     const j = openJ.find((t) => !usedJ.has(t.id) && instKey(t.exchange, t.symbol) === key && t.side === 'LONG');
     if (j && qty === j.qty) {
@@ -200,5 +235,5 @@ export function planImport(journal, fills, today = istDay(new Date().toISOString
   }
 
   const times = fills.map((f) => f.time).sort();
-  return { dateFixes, closes, newTrades, dupes, unmatched, alreadyImported, from: times[0], to: times.at(-1), fills: fills.length };
+  return { repairs, dateFixes, closes, newTrades, dupes, unmatched, alreadyImported, from: times[0], to: times.at(-1), fills: fills.length };
 }
