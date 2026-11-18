@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f17" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icon.svg" />
   <title>TradeQuest — Trading Journal</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -22,13 +27,13 @@
     <aside class="sidebar">
       <a class="brand" href="#/dashboard"><span class="brand-mark">⚔️</span><span>Trade<b>Quest</b></span></a>
       <nav class="nav">
-        <a href="#/dashboard" data-route="dashboard"><span>🏠</span>Dashboard</a>
-        <a href="#/journal" data-route="journal"><span>📒</span>Journal</a>
-        <a href="#/insights" data-route="insights"><span>📊</span>Insights</a>
-        <a href="#/review" data-route="review"><span>🪞</span>Weekly review</a>
-        <a href="#/practice" data-route="practice"><span>🎮</span>Practice</a>
-        <a href="#/achievements" data-route="achievements"><span>🏆</span>Achievements</a>
-        <a href="#/settings" data-route="settings"><span>⚙️</span>Settings</a>
+        <a href="#/dashboard" data-route="dashboard"><span>🏠</span><b>Dashboard</b><i>Home</i></a>
+        <a href="#/journal" data-route="journal"><span>📒</span><b>Journal</b><i>Journal</i></a>
+        <a href="#/insights" data-route="insights"><span>📊</span><b>Insights</b><i>Insights</i></a>
+        <a href="#/review" data-route="review"><span>🪞</span><b>Weekly review</b><i>Review</i></a>
+        <a href="#/practice" data-route="practice"><span>🎮</span><b>Practice</b><i>Practice</i></a>
+        <a href="#/achievements" data-route="achievements"><span>🏆</span><b>Achievements</b><i>Badges</i></a>
+        <a href="#/settings" data-route="settings"><span>⚙️</span><b>Settings</b><i>Settings</i></a>
       </nav>
       <div class="sidebar-foot" id="sidebar-foot"></div>
     </aside>

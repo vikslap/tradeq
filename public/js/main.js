@@ -56,12 +56,12 @@ export function renderTop() {
         <div class="xpbar"><span style="width:${(L.progress * 100).toFixed(1)}%"></span></div>
       </div>
     </a>
-    <span class="chip flame" title="Clean trades in a row (best ${g.streak.best})">🔥 ${g.streak.current} clean streak</span>
-    <span class="chip" title="Rule checks passed over your last ${g.disciplineSample} closed trades">🧭 Discipline ${g.discipline == null ? '—' : g.discipline + '%'}</span>
+    <span class="chip flame hide-m" title="Clean trades in a row (best ${g.streak.best})">🔥 ${g.streak.current} clean streak</span>
+    <span class="chip hide-m" title="Rule checks passed over your last ${g.disciplineSample} closed trades">🧭 Discipline ${g.discipline == null ? '—' : g.discipline + '%'}</span>
     <div class="top-spacer"></div>
     ${kiteChip}
     <button class="btn ghost sm theme-btn" data-action="toggle-theme" title="Switch to ${document.documentElement.dataset.theme === 'light' ? 'night' : 'light'} mode">${document.documentElement.dataset.theme === 'light' ? '🌙' : '☀️'}</button>
-    <button class="btn primary" data-action="new-trade">＋ New trade</button>`;
+    <button class="btn primary" data-action="new-trade" title="New trade">＋<span class="hide-m"> New trade</span></button>`;
 }
 
 export const actions = {

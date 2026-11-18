@@ -44,7 +44,7 @@ export function pageJournal() {
       <span id="sel-bar">${selBar()}</span>
       <span class="muted" id="journal-summary" style="margin-left:auto"></span>
     </div>
-    <div class="card" style="padding:6px 14px"><div class="table-wrap"><table class="tbl"><thead><tr>
+    <div class="card" style="padding:6px 14px"><div class="table-wrap"><table class="tbl jt"><thead><tr>
       <th style="width:28px"><input type="checkbox" data-sel-all title="Select all shown"></th><th>Entered</th><th>Symbol</th><th>Type</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Exit / LTP</th><th class="r">Net P&L</th><th class="r">R</th><th>Setup</th><th>Plan</th><th class="r">XP</th></tr></thead>
       <tbody id="journal-body">${journalRows()}</tbody></table></div></div>`;
 }

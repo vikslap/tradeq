@@ -198,8 +198,8 @@ function historyHtml(sessions) {
 
 function gameShell() {
   return `<div class="pa-grid">
-    <section class="card" style="padding:12px" data-chart-wrap><div class="row" style="justify-content:space-between;margin-bottom:8px">
-      <div class="row"><b id="pa-title"></b><span class="pill" id="pa-iv"></span>${drawToolbar()}</div><span class="muted mono" id="pa-date"></span></div>
+    <section class="card" style="padding:12px" data-chart-wrap><div class="row wrap" style="justify-content:space-between;margin-bottom:8px">
+      <div class="row wrap"><b id="pa-title"></b><span class="pill" id="pa-iv"></span>${drawToolbar()}</div><span class="muted mono" id="pa-date"></span></div>
       <div id="pa-chart" style="height:520px"></div>
       <div class="row wrap" style="margin-top:10px;gap:8px">
         <button class="btn" data-pa="next">▶ Next bar <span class="faint">(→)</span></button>

@@ -137,13 +137,13 @@ export function attachDrawings({ chart, series, host, times, candles = () => [],
     }
     // Endpoint handles (draggable when a drawing is selected).
     for (const h of handles) {
-      const c = el('circle', { cx: h.x, cy: h.y, r: 5, fill: C.panel || '#121723', stroke: C.accent, 'stroke-width': 2, style: h.d.preview ? 'pointer-events:none' : 'pointer-events:all;cursor:grab' });
+      const c = el('circle', { cx: h.x, cy: h.y, r: 5, fill: C.panel || '#121723', stroke: C.accent, 'stroke-width': 2, style: h.d.preview ? 'pointer-events:none' : 'pointer-events:all;cursor:grab;touch-action:none' });
       if (!h.d.preview) c.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); drag = { id: h.d.id, end: h.end }; chart.applyOptions({ handleScroll: false, handleScale: false }); });
       svg.appendChild(c);
     }
     // While a tool is active, a transparent layer captures clicks (chart panning pauses).
     if (tool !== 'none') {
-      const cap = el('rect', { x: 0, y: 0, width: plotW, height: host.clientHeight, fill: 'transparent', style: 'pointer-events:all;cursor:crosshair' });
+      const cap = el('rect', { x: 0, y: 0, width: plotW, height: host.clientHeight, fill: 'transparent', style: 'pointer-events:all;cursor:crosshair;touch-action:none' });
       cap.addEventListener('pointerdown', onCapDown);
       cap.addEventListener('pointermove', (e) => { hover = anchorAt(e.clientX, e.clientY, tool === 'trend'); redraw(); });
       svg.appendChild(cap);

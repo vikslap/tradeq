@@ -197,3 +197,7 @@ test/                node:test unit tests → npm test
 - **Partial exits**: in the close form, enter fewer shares than you hold to book a partial exit. The trade stays open with the remainder; the side panel lists each exit (removable) and the charges breakdown. Exit XP is scored once the whole position is closed.
 - Tradebook imports keep each exit order separately, and count entry orders, so per-order brokerage matches the contract note. A position partly sold by the end of the file becomes one open trade with its exits.
 - Kite sync compares your broker holdings with the quantity still open.
+
+## On your phone
+
+The layout adapts to phone screens: a bottom tab bar, a compact top bar, full-screen forms and trade panels, the journal as a card list, and touch-friendly chart drawing. Use "Add to Home screen" in your phone's browser to open it like an app. To reach it from your phone, use the hosted (Cloudflare) version, which has a password. The local server only listens on your own PC, because it has no login.
