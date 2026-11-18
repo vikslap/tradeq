@@ -1,3 +1,4 @@
+import { tokenParam } from './js/kiteinst.js';
 // 🎮 Practice — chart replay game on real Kite candles.
 // Paper trades live in their own record (state.practice) and never touch the journal.
 import { attachDrawings, drawToolbar } from './drawing.js';
@@ -284,7 +285,7 @@ async function skipChart() {
 
 async function loadCandles(s) {
   const qs = new URLSearchParams({ exchange: s.exchange, symbol: s.symbol, interval: s.interval, start: s.start });
-  return ctx.api(`/api/practice/candles?${qs}`);
+  return ctx.api(`/api/practice/candles?${qs}${await tokenParam(s.exchange, s.symbol)}`);
 }
 
 async function resume(id, review = false) {

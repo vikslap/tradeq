@@ -1,3 +1,4 @@
+import { clientSearch, searchLocal } from './kiteinst.js';
 import { tradeCharges, exitsOf, CHARGE_LABELS } from '../charges.js';
 import { metrics, entryChecks, exitChecks, dayKey, MISTAKE_TAGS, HORIZONS, isLT } from '../game.js';
 import { $, esc, nf0, num, sum, money, price, pct, rfmt, cls, fmtTime, hold, toLocalInput, fromLocalInput, xpPill, EXCHANGES, SEGMENTS, EMO_IN, EMO_OUT, LT_EXIT_REASONS, EXIT_REASONS, guessSegment, stars, radios, paint, setRadio } from './util.js';
@@ -194,7 +195,7 @@ export function bindAutocomplete(form, after) {
     const q = inp.value.trim();
     if (q.length < 2) return hide();
     timer = setTimeout(async () => {
-      try { items = (await api('/api/kite/search?q=' + encodeURIComponent(q))).results; active = items.length ? 0 : -1; draw(); } catch (e) { $('#sym-hint', form).innerHTML = `<span class="neg">${esc(e.message)}</span>`; hide(); }
+      try { items = clientSearch() ? await searchLocal(q) : (await api('/api/kite/search?q=' + encodeURIComponent(q))).results; active = items.length ? 0 : -1; draw(); } catch (e) { $('#sym-hint', form).innerHTML = `<span class="neg">${esc(e.message)}</span>`; hide(); }
     }, 180);
   });
   inp.addEventListener('keydown', (e) => {

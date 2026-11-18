@@ -1,3 +1,4 @@
+import { setClientSearch } from './kiteinst.js';
 import { computeGame, tradeKey, HORIZON_LABEL, isLT, isTrading } from '../game.js';
 import { computeStats } from '../stats.js';
 import { reconcile } from '../sync.js';
@@ -21,10 +22,40 @@ export const S = {
 };
 
 
+// Hosted version: a password screen when the session cookie is missing or expired.
+let loginShown = false;
+export function showLogin() {
+  if (loginShown) return; loginShown = true;
+  const el = document.createElement('div');
+  el.className = 'login-screen';
+  el.innerHTML = `<form class="login-card" autocomplete="on">
+    <div class="brand" style="justify-content:center;margin-bottom:6px"><span class="brand-mark">⚔️</span><span>Trade<b>Quest</b></span></div>
+    <p class="muted" style="text-align:center;margin:0 0 16px">Enter your password to open your journal.</p>
+    <input class="input" type="password" name="password" placeholder="Password" autocomplete="current-password" required autofocus>
+    <div class="err" id="login-err" style="min-height:18px;margin:6px 0"></div>
+    <button class="btn primary" type="submit" style="width:100%">Unlock</button>
+  </form>`;
+  document.body.appendChild(el);
+  const form = el.querySelector('form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector('button'); btn.disabled = true;
+    const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: form.password.value }) });
+    if (res.ok) return location.reload();
+    const j = await res.json().catch(() => ({}));
+    el.querySelector('#login-err').textContent = j.error || 'Login failed'; btn.disabled = false; form.password.select();
+  });
+  setTimeout(() => form.password.focus(), 50);
+}
+
 export async function api(url, { method = 'GET', body } = {}) {
   const res = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) { const e = new Error(j.error || `Request failed (${res.status})`); e.code = j.code; throw e; }
+  if (!res.ok) {
+    const e = new Error(j.error || `Request failed (${res.status})`); e.code = j.code;
+    if (j.code === 'AUTH') showLogin();
+    throw e;
+  }
   return j;
 }
 
@@ -66,7 +97,8 @@ export function syncBadge() {
 
 
 export async function loadKite() {
-  try { S.kite = await api('/api/kite/status'); } catch { S.kite = { configured: false, connected: false }; }
+  try { S.kite = await api('/api/kite/status'); } catch (e) { if (e.code === 'AUTH') throw e; S.kite = { configured: false, connected: false }; }
+  setClientSearch(S.kite.clientSearch && !S.kite.mock);
 }
 
 

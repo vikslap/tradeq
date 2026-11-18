@@ -11,6 +11,8 @@
   "scripts": {
     "start": "node server.js",
     "demo": "node scripts/demo.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "cf:dev": "npx wrangler dev",
+    "cf:deploy": "npx wrangler deploy"
   }
 }

@@ -514,3 +514,7 @@ details.charges .stat-line { padding: 3px 0; font-size: 12px; }
   .tbl.jt td[colspan] { display: block; grid-column: 1 / -1; }
 }
 @media (max-width: 380px) { .kpis { grid-template-columns: 1fr; } .chip.on, .chip.demo, .chip.off { display: none; } }
+
+/* hosted version: login */
+.login-screen { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: var(--bg); }
+.login-card { width: min(360px, 100%); background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 26px 22px; box-shadow: var(--shadow); }

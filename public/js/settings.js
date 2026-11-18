@@ -6,8 +6,8 @@ import { confirmBox, toast } from './ui.js';
 // ---------- Settings ----------
 export function pageSettings() {
   const s = S.state.settings; const k = S.kite;
-  const port = location.port || '80';
-  const redirectUrl = `${location.protocol}//${location.hostname}:${port}/api/kite/callback`;
+  const hosted = Boolean(k.hosted); // the Cloudflare version
+  const redirectUrl = `${location.origin}/api/kite/callback`;
   let kiteBody;
   if (k.mock) {
     kiteBody = `<div class="note">Demo mode is on (<code>KITE_MOCK=1</code>). Prices are simulated random walks — great for trying the app, never for real decisions. Set <code>KITE_MOCK=0</code> in <code>.env</code> and restart to use your real Kite account.</div>`;
@@ -15,7 +15,7 @@ export function pageSettings() {
     kiteBody = `<ol class="prose" style="padding-left:18px;margin:0">
       <li>Create an app at <a class="link" href="https://developers.kite.trade" target="_blank" rel="noopener">developers.kite.trade</a>. Live quotes need the paid <b>Kite Connect</b> plan.</li>
       <li>Set the app's <b>Redirect URL</b> to <code class="mono">${esc(redirectUrl)}</code></li>
-      <li>Copy <code>.env.example</code> to <code>.env</code>, fill <code>KITE_API_KEY</code> and <code>KITE_API_SECRET</code>, then restart <code>npm start</code>.</li>
+      <li>${hosted ? 'Add <code>KITE_API_KEY</code> and <code>KITE_API_SECRET</code> as secrets: <code>npx wrangler secret put KITE_API_KEY</code> (see docs/CLOUDFLARE.md).' : 'Copy <code>.env.example</code> to <code>.env</code>, fill <code>KITE_API_KEY</code> and <code>KITE_API_SECRET</code>, then restart <code>npm start</code>.'}</li>
       <li>Come back here and press <b>Connect</b>. Kite logins expire every morning (~6 AM), so reconnect once a day.</li></ol>
       <div class="note" style="margin-top:12px">Until then everything works in manual mode — type your prices in.</div>`;
   } else if (!k.connected) {
@@ -48,8 +48,8 @@ export function pageSettings() {
       <p class="muted" style="margin-top:0">These Kite holdings won't be flagged as missing from your journal.</p>
       ${s.syncIgnore.map((k) => `<div class="mistake"><span class="mono">${esc(k.replace(/^EQ:/, ''))}</span><button class="btn sm ghost" data-action="sync-unignore" data-key="${esc(k)}">Stop ignoring</button></div>`).join('')}</section>` : ''}
     <section class="card"><header class="card-h"><h3>Your data</h3></header>
-      <p class="muted" style="margin-top:0">Everything lives in <code>data/journal.json</code> on this computer (a backup copy is made on every start). Export regularly.</p>
-      <div class="row wrap"><a class="btn" href="/api/export" download>⬇ Export JSON</a><label class="btn">⬆ Import JSON<input type="file" accept="application/json" id="import-file" hidden></label><button class="btn" data-action="tradebook-import">⬆ Import Zerodha tradebook</button></div>
+      <p class="muted" style="margin-top:0">${hosted ? 'Your journal lives in your own Cloudflare D1 database (with 7–30 days of point-in-time recovery). Export now and then anyway.' : 'Everything lives in <code>data/journal.json</code> on this computer (a backup copy is made on every start). Export regularly.'}</p>
+      <div class="row wrap"><a class="btn" href="/api/export" download>⬇ Export JSON</a><label class="btn">⬆ Import JSON<input type="file" accept="application/json" id="import-file" hidden></label><button class="btn" data-action="tradebook-import">⬆ Import Zerodha tradebook</button>${hosted ? '<button class="btn ghost" data-action="app-logout">Log out of TradeQuest</button>' : ''}</div>
       <p class="faint" style="font-size:12px">Import replaces the whole journal.</p>
     </section>
   </div>`;

@@ -1,3 +1,4 @@
+import { tokenParam } from './kiteinst.js';
 import { tradeCharges, exitsOf, CHARGE_LABELS } from '../charges.js';
 import { metrics, isLT, reviewStatus, REVIEW_DAYS } from '../game.js';
 import { mountTradeChart, INTERVAL_LABEL } from '../tradechart.js';
@@ -18,7 +19,7 @@ export const dataKey = (t, iv) => `${t.id}|${iv || 'auto'}|${t.status === 'OPEN'
 export async function chartData(t, iv) {
   const k = dataKey(t, iv);
   if (S.charts[k]) return S.charts[k];
-  const data = await api(`/api/trades/${t.id}/chart${iv ? `?interval=${iv}` : ''}`);
+  const data = await api(`/api/trades/${t.id}/chart?interval=${iv || ''}${await tokenParam(t.exchange, t.symbol)}`);
   S.charts[k] = data;
   if (data.updated) setTimeout(() => reload({ celebrate: true }), 0);
   return data;

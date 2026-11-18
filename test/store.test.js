@@ -4,8 +4,9 @@ import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as store from '../lib/store.js';
+import { init as initFileStore } from '../lib/store-file.js';
 
-store.init(mkdtempSync(path.join(os.tmpdir(), 'tq-')));
+initFileStore(mkdtempSync(path.join(os.tmpdir(), 'tq-')));
 const t0 = { symbol: 'itc', side: 'LONG', qty: 100, entryPrice: 400, stopLoss: 380, entryTime: '2026-11-02T05:00:00.000Z' };
 
 test('create normalises and records initial stop', () => {

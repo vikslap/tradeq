@@ -5,3 +5,5 @@ demo-data/
 *.tmp
 .DS_Store
 Thumbs.db
+.dev.vars
+.wrangler/

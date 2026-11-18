@@ -201,3 +201,16 @@ test/                node:test unit tests → npm test
 ## On your phone
 
 The layout adapts to phone screens: a bottom tab bar, a compact top bar, full-screen forms and trade panels, the journal as a card list, and touch-friendly chart drawing. Use "Add to Home screen" in your phone's browser to open it like an app. To reach it from your phone, use the hosted (Cloudflare) version, which has a password. The local server only listens on your own PC, because it has no login.
+
+## Hosting on Cloudflare (phone access)
+
+TradeQuest can also run on Cloudflare Workers, with your journal in a D1 database and a password login. The free plan is enough. Step-by-step guide: **[docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)**. In short:
+
+```powershell
+npx wrangler login
+npx wrangler d1 create tradequest        # paste the id into wrangler.toml
+npx wrangler secret put APP_PASSWORD
+npx wrangler deploy
+```
+
+Both versions share the same API code (`lib/api.js`). The local server (`server.js`) stores the journal in `data/journal.json`, and the Worker (`worker/index.js`) stores it in D1.

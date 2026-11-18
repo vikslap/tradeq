@@ -84,6 +84,7 @@ export const actions = {
     if (!(await confirmBox('Remove this exit?', 'The quantity goes back to open. Everything else on the trade stays.', 'Remove'))) return;
     try { await api(`/api/trades/${t.id}`, { method: 'PUT', body: { exits: (t.exits || []).filter((e) => e.id !== el.dataset.eid) } }); await reload({ celebrate: true }); } catch (e) { toast(esc(e.message), 'err'); }
   },
+  'app-logout': async () => { await fetch('/api/auth/logout', { method: 'POST' }); location.reload(); },
   'edit-exit': (el) => { const t = findTrade(el.dataset.id); openCloseForm(t, { exitPrice: t.exitPrice, exitTime: t.exitTime, exitSource: t.exitSource, edit: true }); },
   'reopen-trade': async (el) => {
     if (!(await confirmBox('Reopen trade?', 'The exit will be cleared from the stats until you close it again. Exit notes are kept.', 'Reopen'))) return;
@@ -222,6 +223,7 @@ export async function boot() {
   try {
     await Promise.all([loadKite(), (async () => { S.state = await api('/api/state'); })()]);
   } catch (e) {
+    if (e.code === 'AUTH') return; // the login screen is showing
     $('#main').innerHTML = `<div class="card empty"><div class="big">⚠️</div><h2>Can't reach the TradeQuest server</h2><p>${esc(e.message)}. Is <code>npm start</code> running?</p></div>`;
     return;
   }

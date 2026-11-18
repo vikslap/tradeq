@@ -1,0 +1,21 @@
+# TradeQuest on Cloudflare Workers + D1. Setup guide: docs/CLOUDFLARE.md
+name = "tradequest"
+main = "worker/index.js"
+compatibility_date = "2026-11-01"
+
+# The web app (public/) is served as static assets; only /api/* runs the Worker.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# Your journal. Run `npx wrangler d1 create tradequest` and paste the id it prints here.
+[[d1_databases]]
+binding = "DB"
+database_name = "tradequest"
+database_id = "PASTE-YOUR-DATABASE-ID-HERE"
+
+# Secrets — set with `npx wrangler secret put <NAME>`, never in this file:
+#   APP_PASSWORD      the password for logging in to TradeQuest (8+ characters)
+#   KITE_API_KEY      from developers.kite.trade (optional)
+#   KITE_API_SECRET   from developers.kite.trade (optional)
