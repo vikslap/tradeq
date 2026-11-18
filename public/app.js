@@ -1,5 +1,6 @@
 import { computeGame, metrics, entryChecks, exitChecks, dayKey, tradeKey, weekStart, LEVELS, MISTAKES, MISTAKE_TAGS, mistakeName, isMistake } from './game.js';
 import { computeStats, groupBy, rHistogram } from './stats.js';
+import { reconcile } from './sync.js';
 
 // =====================================================================
 // Utilities
@@ -64,6 +65,7 @@ const S = {
   quotes: {}, quotesAt: null, flash: new Set(),
   f: { q: '', status: 'all', segment: 'all', setup: 'all' },
   drawerId: null, reviewWeek: null,
+  portfolio: null, sync: null, charts: {},
 };
 
 async function api(url, { method = 'GET', body } = {}) {
@@ -78,8 +80,31 @@ async function reload({ celebrate = false } = {}) {
   S.state = await api('/api/state');
   S.game = computeGame(S.state);
   S.stats = computeStats(S.state.trades);
+  if (S.portfolio) S.sync = reconcile(S.state.trades, S.portfolio);
   if (celebrate && prev) celebrateDiff(prev, S.game);
   render();
+}
+
+async function loadPortfolio({ quiet = true } = {}) {
+  if (!S.kite.connected) { S.portfolio = null; S.sync = null; return; }
+  try {
+    S.portfolio = await api('/api/kite/portfolio');
+    S.sync = reconcile(S.state.trades, S.portfolio);
+  } catch (e) { if (!quiet) toast(esc(e.message), 'err'); }
+}
+
+function syncQuest() {
+  if (!S.sync) return [];
+  const n = S.sync.rows.length; const ok = n - S.sync.issues;
+  return [{ id: 'sync', icon: '🔗', title: 'Books match Kite', desc: 'Every Kite position is in your journal, and nothing extra', progress: ok, total: n, done: S.sync.issues === 0 && n > 0, isIdle: n === 0, idle: 'No positions at Kite or in the journal' }];
+}
+
+function syncBadge() {
+  if (!S.kite.connected) return '';
+  if (!S.sync) return '<span class="sub">Checking Kite…</span>';
+  return S.sync.issues
+    ? `<button class="btn sm warn-btn" data-action="kite-sync">⚠ ${S.sync.issues} out of sync with Kite</button>`
+    : '<button class="btn ghost sm" data-action="kite-sync">✓ Matches Kite</button>';
 }
 
 async function loadKite() {
@@ -153,7 +178,8 @@ function pageDashboard() {
   const open = trades.filter((t) => t.status === 'OPEN');
   const lastBadge = g.badges.filter((b) => b.earned).sort((a, b) => new Date(b.earnedAt) - new Date(a.earnedAt))[0];
   const discColor = g.discipline == null ? 'var(--faint)' : g.discipline >= 80 ? 'var(--green)' : g.discipline >= 60 ? 'var(--gold)' : 'var(--red)';
-  const doneQ = g.quests.filter((q) => q.done).length;
+  const quests = [...g.quests, ...syncQuest()];
+  const doneQ = quests.filter((q) => q.done).length;
   return `<div class="dash">
     <section class="card hero">
       <div class="ring-wrap">${ring(L.progress, 118, 10, 'url(#lvlgrad)')}<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="lvlgrad" x1="0" x2="1"><stop offset="0" stop-color="#8b6cff"/><stop offset="1" stop-color="#5ad1ff"/></linearGradient></defs></svg>
@@ -170,12 +196,12 @@ function pageDashboard() {
       </div>
     </section>
     <section class="card">
-      <header class="card-h"><h3>Today's quests</h3><span class="sub">${doneQ}/${g.quests.length} done · clean day = +20 XP</span></header>
-      <div class="quests">${g.quests.map(questHtml).join('')}</div>
+      <header class="card-h"><h3>Today's quests</h3><span class="sub">${doneQ}/${quests.length} done · clean day = +20 XP</span></header>
+      <div class="quests">${quests.map(questHtml).join('')}</div>
     </section>
     <div class="kpis span-2" id="kpis">${kpiTiles()}</div>
     <section class="card span-2">
-      <header class="card-h"><h3>Open positions <span class="faint" style="font-weight:500">· ${open.length}</span></h3><span class="sub" id="live-note">${liveNote()}</span></header>
+      <header class="card-h"><h3>Open positions <span class="faint" style="font-weight:500">· ${open.length}</span></h3><span class="row"><span class="sub" id="live-note">${liveNote()}</span><span id="sync-badge">${syncBadge()}</span></span></header>
       <div id="open-positions">${openPositionsInner()}</div>
     </section>
     <section class="card">
@@ -299,7 +325,7 @@ function pageJournal() {
   const usedSetups = [...new Set(S.state.trades.map((t) => t.setup).filter(Boolean))].sort();
   const f = S.f;
   return `<div class="page-h"><div><h1>Journal</h1><p>Every trade, its plan, and the XP it earned.</p></div>
-    <div class="row">${S.kite.connected ? '<button class="btn" data-action="kite-fills">⚡ Today\'s Kite fills</button>' : ''}<button class="btn primary" data-action="new-trade">＋ New trade</button></div></div>
+    <div class="row">${S.kite.connected ? `<button class="btn" data-action="kite-sync">🔗 Sync with Kite${S.sync?.issues ? ` <span class="pill red">${S.sync.issues}</span>` : ''}</button><button class="btn" data-action="kite-fills">⚡ Today's Kite fills</button>` : ''}<button class="btn primary" data-action="new-trade">＋ New trade</button></div></div>
     <div class="toolbar">
       <input class="input search" placeholder="Search symbol, setup, notes…" data-filter="q" value="${esc(f.q)}">
       <div class="seg">${[['all', 'All'], ['OPEN', 'Open'], ['CLOSED', 'Closed']].map(([v, l]) => `<label><input type="radio" name="fstatus" data-filter="status" value="${v}" ${f.status === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
@@ -881,6 +907,81 @@ function openCloseForm(t, prefill = {}) {
 }
 
 // ---------- Drawer ----------
+// ---------- Trade chart ----------
+const STEP = { '5minute': 5 * 60000, '60minute': 3600000, day: 86400000 };
+const chartKey = (t) => `${t.updatedAt}|${t.status === 'OPEN' ? Math.floor(Date.now() / 300000) : ''}`;
+
+function chartHtml(t) {
+  const c = S.charts[t.id];
+  if (c?.key === chartKey(t)) return c.error ? `<div class="empty-sm">${esc(c.error)}</div>` : candleChart(t, c.data);
+  if (!c || c.key !== chartKey(t)) queueMicrotask(() => loadChart(t));
+  return `<div class="chart-loading">${S.kite.connected || t.status === 'CLOSED' ? 'Loading chart…' : 'Connect Kite to see this trade on a chart.'}</div>`;
+}
+
+async function loadChart(t) {
+  const key = chartKey(t);
+  if (S.charts[t.id]?.loading === key) return;
+  if (!S.kite.connected && t.status === 'OPEN') return;
+  S.charts[t.id] = { ...(S.charts[t.id] || {}), loading: key };
+  try {
+    const data = await api(`/api/trades/${t.id}/chart`);
+    S.charts[t.id] = { key, data };
+    if (data.updated) { await reload({ celebrate: true }); return; }
+  } catch (e) {
+    S.charts[t.id] = { key, error: e.code === 'TOKEN' ? 'Connect Kite to load this chart.' : e.message };
+  }
+  const el = $('#trade-chart');
+  if (el && S.drawerId === t.id) el.innerHTML = chartHtml(t);
+}
+
+function candleChart(t, { candles, interval }) {
+  if (!candles?.length) return '<div class="empty-sm">No candles returned for this period.</div>';
+  const W = 600; const H = 290; const PL = 6; const PR = 110; const PT = 10; const PB = 22;
+  const n = candles.length; const bw = (W - PL - PR) / n; const step = STEP[interval];
+  const X = (i) => PL + i * bw + bw / 2;
+  const idxAt = (iso) => { const ms = new Date(iso).getTime(); const i = candles.findIndex((c) => c[0] + step > ms); return i < 0 ? n - 1 : i; };
+  const iE = idxAt(t.entryTime);
+  const iX = t.status === 'CLOSED' && t.exitTime ? idxAt(t.exitTime) : n - 1;
+  const levels = [
+    { v: t.target, label: 'TGT', col: 'var(--green)', dash: '5 4' },
+    { v: t.entryPrice, label: 'ENTRY', col: 'var(--accent)', dash: '' },
+    { v: t.initialStop, label: 'SL', col: 'var(--red)', dash: '5 4' },
+    t.stopLoss != null && t.stopLoss !== t.initialStop ? { v: t.stopLoss, label: 'SL NOW', col: 'var(--red)', dash: '2 3' } : null,
+    t.status === 'CLOSED' ? { v: t.exitPrice, label: 'EXIT', col: 'var(--gold)', dash: '' } : null,
+  ].filter((l) => l && l.v != null);
+  let lo = Math.min(...candles.map((c) => c[3]), ...levels.map((l) => l.v));
+  let hi = Math.max(...candles.map((c) => c[2]), ...levels.map((l) => l.v));
+  const pad = (hi - lo) * 0.05 || hi * 0.01; lo -= pad; hi += pad;
+  const Y = (v) => PT + ((hi - v) / (hi - lo)) * (H - PT - PB);
+  const x0 = X(iE) - bw / 2; const x1 = X(iX) + bw / 2;
+  const zone = (a, b, col) => (a == null || b == null ? '' : `<rect x="${x0.toFixed(1)}" y="${Math.min(Y(a), Y(b)).toFixed(1)}" width="${(x1 - x0).toFixed(1)}" height="${Math.abs(Y(a) - Y(b)).toFixed(1)}" style="fill:${col};opacity:.12"/>`);
+  const cw = Math.max(1, bw * 0.62);
+  const bars = candles.map((c, i) => {
+    const up = c[4] >= c[1]; const col = up ? 'var(--green)' : 'var(--red)';
+    const yo = Y(c[1]); const yc = Y(c[4]); const dim = i < iE || i > iX ? ';opacity:.45' : '';
+    return `<line x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${Y(c[2]).toFixed(1)}" y2="${Y(c[3]).toFixed(1)}" style="stroke:${col}${dim}" stroke-width="1"/>`
+      + `<rect x="${(X(i) - cw / 2).toFixed(1)}" y="${Math.min(yo, yc).toFixed(1)}" width="${cw.toFixed(1)}" height="${Math.max(1, Math.abs(yc - yo)).toFixed(1)}" style="fill:${col}${dim}"/>`;
+  }).join('');
+  // Right-hand labels, nudged apart so they don't overlap.
+  const labs = levels.map((l) => ({ ...l, y: Y(l.v) })).sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labs.length; i++) if (labs[i].y - labs[i - 1].y < 15) labs[i].y = labs[i - 1].y + 15;
+  const lines = levels.map((l) => `<line x1="${PL}" x2="${W - PR}" y1="${Y(l.v).toFixed(1)}" y2="${Y(l.v).toFixed(1)}" style="stroke:${l.col}" stroke-width="1.2" stroke-dasharray="${l.dash}" opacity=".9"/>`).join('');
+  const tags = labs.map((l) => `<rect x="${W - PR + 3}" y="${(l.y - 7).toFixed(1)}" width="${PR - 4}" height="14" rx="3" style="fill:${l.col}"/><text x="${W - PR + 7}" y="${(l.y + 3.5).toFixed(1)}" class="tag">${l.label} ${nf2.format(l.v)}</text>`).join('');
+  const dir = t.side === 'SHORT' ? -1 : 1;
+  const entryMark = `<path d="M${X(iE)},${(Y(t.entryPrice) + 4 * dir).toFixed(1)} l-5,${9 * dir} l10,0 z" style="fill:var(--accent)"/>`;
+  const exitMark = t.status === 'CLOSED' ? `<circle cx="${X(iX).toFixed(1)}" cy="${Y(t.exitPrice).toFixed(1)}" r="4.5" style="fill:var(--gold);stroke:var(--panel)" stroke-width="1.5"/>` : '';
+  const fmtT = (ms) => new Date(ms).toLocaleString('en-IN', interval === 'day' ? { day: '2-digit', month: 'short' } : { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+  const ticks = [0, 0.33, 0.66, 1].map((f) => Math.round(f * (n - 1)));
+  const xl = [...new Set(ticks)].map((i) => `<text x="${X(i).toFixed(1)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${esc(fmtT(candles[i][0]))}</text>`).join('');
+  const name = { '5minute': '5-minute', '60minute': 'Hourly', day: 'Daily' }[interval];
+  return `<div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="label">${name} chart${S.kite.mock ? ' · demo data' : ''}</span>
+      <span class="faint" style="font-size:11.5px">shaded = time in trade · <span style="color:var(--green)">reward</span> / <span style="color:var(--red)">risk</span> zone</span></div>
+    <svg class="chart candles" viewBox="0 0 ${W} ${H}">
+      ${zone(t.entryPrice, t.target, 'var(--green)')}${zone(t.entryPrice, t.initialStop, 'var(--red)')}
+      ${bars}${lines}${entryMark}${exitMark}${tags}${xl}
+    </svg>`;
+}
+
 function renderDrawer() {
   const t = S.state.trades.find((x) => x.id === S.drawerId);
   if (!t) { S.drawerId = null; $('#drawer-root').innerHTML = ''; return; }
@@ -895,6 +996,7 @@ function renderDrawer() {
         <div class="muted" style="margin-top:4px;font-size:12.5px">${fmtDT(t.entryTime)}${t.exitTime && t.status === 'CLOSED' ? ' → ' + fmtDT(t.exitTime) : ''} · ${hold(m.holdDays)}</div></div>
       <button class="btn ghost sm" data-action="close-drawer">✕</button>
     </div>
+    <div class="sec" style="padding-top:12px;padding-bottom:12px"><div id="trade-chart">${chartHtml(t)}</div></div>
     <div class="sec"><div class="row" style="justify-content:space-between;align-items:flex-end">
       <div><div class="label">${t.status === 'OPEN' ? 'Unrealised P&L' : 'Net P&L'}</div><div class="mono ${cls(m.net)}" style="font-size:28px;font-weight:700;margin-top:4px">${m.net == null ? '—' : money(m.net, { sign: true })}</div></div>
       <div style="text-align:right"><div class="mono ${cls(m.r)}" style="font-size:18px;font-weight:650">${rfmt(m.r)}</div>${xpPill(x)}</div></div></div>
@@ -928,6 +1030,30 @@ function renderDrawer() {
 }
 
 // ---------- Kite fills ----------
+async function openSync() {
+  openModal(`<div class="modal narrow" style="width:min(820px,100%)"><div class="modal-h"><h2>🔗 Journal vs Kite</h2><button class="btn ghost sm" data-action="close-modal">✕</button></div><div class="modal-b" id="sync-body"><div class="muted">Fetching your Kite holdings and positions…</div></div></div>`, { dismissable: true });
+  await loadPortfolio({ quiet: false });
+  const body = $('#sync-body'); if (!body) return;
+  if (!S.sync) { body.innerHTML = '<div class="warn">Could not read your Kite portfolio. Check the connection in Settings.</div>'; return; }
+  const ST = { match: ['green', '✓ Matches'], unlogged: ['red', 'Not in journal'], closed: ['gold', 'Closed at Kite'], qty: ['violet', 'Quantity differs'] };
+  body.innerHTML = `<p class="muted" style="margin-top:0">Open journal trades compared with your Kite holdings and positions${S.kite.mock ? ' <b class="gold">(demo data)</b>' : ''}. Fix the differences so your stats and XP reflect what really happened.</p>
+    ${S.sync.rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Instrument</th><th class="r">Journal</th><th class="r">Kite</th><th>Status</th><th></th></tr></thead><tbody>
+    ${S.sync.rows.map((r, i) => {
+      const [c, l] = ST[r.status];
+      const diff = r.kiteQty - r.journalQty;
+      let act = '';
+      if (r.status === 'unlogged') act = `<button class="btn sm primary" data-action="sync-log" data-i="${i}">Log trade</button>`;
+      else if (r.status === 'closed') act = `<button class="btn sm green" data-action="sync-close" data-i="${i}">Close in journal</button>`;
+      else if (r.status === 'qty') act = (Math.sign(diff) === Math.sign(r.journalQty) ? `<button class="btn sm" data-action="sync-log" data-i="${i}">Log extra ${nf0.format(Math.abs(diff))}</button> ` : '') + `<button class="btn sm ghost" data-action="sync-review" data-i="${i}">Review</button>`;
+      return `<tr><td><span class="sym">${esc(r.symbol)}</span><span class="exch">${r.exchange}</span></td>
+        <td class="r num">${r.journalQty ? nf0.format(r.journalQty) : '—'}</td><td class="r num">${r.kiteQty ? nf0.format(r.kiteQty) : '—'}</td>
+        <td><span class="pill ${c}">${l}</span></td><td class="r">${act}</td></tr>`;
+    }).join('')}</tbody></table></div>
+    <p class="faint" style="font-size:12px;margin-bottom:0">Negative = short. Partly exited a position? Edit the trade's quantity, or close it and log the remainder as a new trade.</p>`
+    : '<div class="empty-sm">Nothing open at Kite or in your journal.</div>'}`;
+  render();
+}
+
 async function openFills() {
   const el = openModal(`<div class="modal narrow" style="width:min(760px,100%)"><div class="modal-h"><h2>⚡ Today's Kite fills</h2><button class="btn ghost sm" data-action="close-modal">✕</button></div><div class="modal-b" id="fills-body"><div class="muted">Loading…</div></div></div>`, { dismissable: true });
   try {
@@ -1061,6 +1187,16 @@ const actions = {
   'size-from-risk': (el) => { const f = el.closest('form'); f.qty.value = el.dataset.qty; renderTradePreview(f); },
   'kite-logout': async () => { await api('/api/kite/logout', { method: 'POST' }); await loadKite(); render(); toast('Disconnected from Kite'); },
   'kite-fills': () => openFills(),
+  'kite-sync': () => openSync(),
+  'sync-log': (el) => {
+    const r = S.sync.rows[+el.dataset.i]; const diff = r.kiteQty - r.journalQty; closeModal();
+    openTradeForm(null, { symbol: r.symbol, exchange: r.exchange, segment: guessSegment(r.exchange, r.symbol), side: diff > 0 ? 'LONG' : 'SHORT', qty: Math.abs(diff), entryPrice: r.avgPrice, entrySource: 'kite-fill' });
+  },
+  'sync-close': (el) => {
+    const r = S.sync.rows[+el.dataset.i]; closeModal();
+    openCloseForm(r.trades[0], r.exitPrice ? { exitPrice: r.exitPrice, exitSource: 'kite-fill' } : {});
+  },
+  'sync-review': (el) => { const r = S.sync.rows[+el.dataset.i]; closeModal(); S.drawerId = r.trades[0].id; renderDrawer(); },
   'fill-entry': (el) => {
     const f = S._fills[+el.dataset.i]; closeModal();
     openTradeForm(null, { symbol: f.symbol, exchange: f.exchange, segment: guessSegment(f.exchange, f.symbol), side: f.side === 'BUY' ? 'LONG' : 'SHORT', qty: f.qty, entryPrice: f.price, entryTime: f.time, entrySource: 'kite-fill' });
@@ -1116,13 +1252,15 @@ async function boot() {
     return;
   }
   S.game = computeGame(S.state); S.stats = computeStats(S.state.trades);
+  loadPortfolio().then(() => render());
   const { params } = route();
   if (params.get('kite') === 'ok') { toast(`<div class="t-h">⚡ Kite connected</div><div class="muted" style="font-size:12px;margin-top:4px">Live prices are on until ~6 AM tomorrow.</div>`); history.replaceState(null, '', '#/settings'); }
   if (params.get('kite') === 'error') { toast(`Kite login failed: ${esc(params.get('msg') || 'unknown error')}`, 'err'); history.replaceState(null, '', '#/settings'); }
   render();
   pollQuotes();
   setInterval(pollQuotes, 5000);
-  setInterval(async () => { const before = S.kite.connected; await loadKite(); if (before !== S.kite.connected) render(); }, 60000);
+  setInterval(async () => { const before = S.kite.connected; await loadKite(); if (before !== S.kite.connected) { await loadPortfolio(); render(); } }, 60000);
+  setInterval(async () => { if (document.hidden || !S.kite.connected) return; await loadPortfolio(); const b = $('#sync-badge'); if (b) b.innerHTML = syncBadge(); }, 120000);
 }
 
 boot();

@@ -1,11 +1,12 @@
 // TradeQuest — local server. Zero dependencies: `node server.js` (Node 18+).
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from './lib/env.js';
 import * as store from './lib/store.js';
 import { createKite } from './lib/kite.js';
+import { chartPlan, excursionsFromCandles } from './lib/chart.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 loadEnv(path.join(ROOT, '.env'));
@@ -17,7 +18,7 @@ const DATA_DIR = path.resolve(ROOT, process.env.DATA_DIR || 'data');
 const MOCK = /^(1|true|yes)$/i.test(process.env.KITE_MOCK || '');
 
 store.init(DATA_DIR);
-const kite = createKite({ apiKey: process.env.KITE_API_KEY, apiSecret: process.env.KITE_API_SECRET, dataDir: DATA_DIR, mock: MOCK });
+const kite = createKite({ apiKey: process.env.KITE_API_KEY, apiSecret: process.env.KITE_API_SECRET, dataDir: DATA_DIR, mock: MOCK, getTrades: () => store.getState().trades });
 
 // ---------- helpers ----------
 const send = (res, status, data, headers = {}) => {
@@ -85,6 +86,29 @@ on('GET', '/api/kite/quote', async (req, p, res, url) => {
   return { quotes };
 });
 on('GET', '/api/kite/search', async (req, p, res, url) => ({ results: await kite.search(url.searchParams.get('q') || '') }));
+// Candles for one trade. Closed trades are cached on disk (their chart never changes),
+// and the candles also fill in the best/worst price reached while the trade was open.
+on('GET', '/api/trades/:id/chart', async (req, p) => {
+  const t = store.getState().trades.find((x) => x.id === p.id);
+  if (!t) throw new store.HttpError('Trade not found', 404);
+  const plan = chartPlan(t);
+  const cacheKey = `${t.exchange}:${t.symbol}|${t.entryTime}|${t.exitTime}|${plan.interval}`;
+  const cacheFile = path.join(DATA_DIR, 'candles', `${t.id}.json`);
+  let candles = null;
+  if (t.status === 'CLOSED') {
+    try { const c = JSON.parse(await readFile(cacheFile, 'utf8')); if (c.key === cacheKey) candles = c.candles; } catch { /* not cached */ }
+  }
+  if (!candles) {
+    candles = await kite.candles({ exchange: t.exchange, symbol: t.symbol, interval: plan.interval, from: plan.from, to: plan.to, trade: t, plan });
+    if (t.status === 'CLOSED' && candles.length) {
+      await mkdir(path.dirname(cacheFile), { recursive: true });
+      await writeFile(cacheFile, JSON.stringify({ key: cacheKey, candles }));
+    }
+  }
+  const updated = store.mergeExcursions(t.id, excursionsFromCandles(t, candles, plan.interval));
+  return { interval: plan.interval, candles, updated };
+});
+on('GET', '/api/kite/portfolio', async () => kite.portfolio());
 on('GET', '/api/kite/fills', async () => ({ fills: await kite.fills() }));
 
 const server = http.createServer(async (req, res) => {

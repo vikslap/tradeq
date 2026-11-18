@@ -34,6 +34,9 @@ Kite sessions expire around 6 AM every day, so connect once each morning. Your A
 - Symbol search across NSE, BSE, NFO and MCX, with lot sizes. The instrument list is cached daily.
 - Live MTM, R-multiple and day change for open positions, refreshed every 5 seconds.
 - **Today's Kite fills**: turn an executed order into a journal entry, or use it as the exit of a matching open trade.
+- **Trade charts**: open any trade to see it on a candlestick chart, with entry, stop, target and exit marked, and the risk and reward zones shaded for the time you were in the trade. The candle size depends on how long you held: 5-minute up to 2 days, hourly up to about 25 days, daily beyond that. Charts of closed trades are saved on your PC, so they load instantly and work offline.
+- **Best / worst price from candles**: the chart also records the best and worst price each trade reached, even if the app wasn't open. That lets the *winner turned into a loss* check catch trades that went +1R and then closed red.
+- **Sync with Kite**: compares your open journal trades with your Kite holdings and positions. It flags positions **not in the journal** (one-click *Log trade*), positions **closed at Kite** but still open in the journal (one-click *Close*, with the exit price filled in), and **quantity differences**. The dashboard shows *✓ Matches Kite* or *⚠ N out of sync*, and adds a *Books match Kite* quest.
 
 Without Kite, everything works in manual mode.
 
