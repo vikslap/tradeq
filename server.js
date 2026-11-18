@@ -1,6 +1,7 @@
 // TradeQuest — local server. Zero dependencies: `node server.js` (Node 18+).
 import http from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from './lib/env.js';
@@ -62,6 +63,41 @@ on('POST', '/api/groups', async (req) => store.createGroup(await readJson(req)))
 on('PUT', '/api/groups/:id', async (req, p) => store.updateGroup(p.id, await readJson(req)));
 on('DELETE', '/api/groups/:id', (req, p) => { store.deleteGroup(p.id); return { ok: true }; });
 on('DELETE', '/api/trades/:id/group', (req, p) => { store.unlinkTrade(p.id); return { ok: true }; });
+// ---------- Practice (chart replay) ----------
+// Candles around a start date: enough history to read the chart, plus the "future" to play.
+const PRACTICE_WINDOW = { day: [500, 300], '60minute': [60, 60], '15minute': [25, 25], '5minute': [8, 8] };
+on('GET', '/api/practice/candles', async (req, p, res, url) => {
+  const q = url.searchParams;
+  const exchange = (q.get('exchange') || 'NSE').toUpperCase();
+  const symbol = (q.get('symbol') || '').toUpperCase().trim();
+  const interval = PRACTICE_WINDOW[q.get('interval')] ? q.get('interval') : 'day';
+  const start = Date.parse(q.get('start'));
+  if (!symbol || !Number.isFinite(start)) throw new store.HttpError('symbol and start are required');
+  const [back, fwd] = PRACTICE_WINDOW[interval];
+  const from = start - back * 86400000;
+  const to = Math.min(start + fwd * 86400000, Date.now());
+  if (to <= start) throw new store.HttpError('Start date must be in the past');
+  const key = createHash('sha1').update([exchange, symbol, interval, from, to].join('|')).digest('hex').slice(0, 16);
+  const file = path.join(DATA_DIR, 'practice-cache', `${key}.json`);
+  const settled = to < Date.now() - 86400000; // past data never changes: cache it
+  if (settled) { try { return JSON.parse(await readFile(file, 'utf8')); } catch { /* fetch */ } }
+  let fake = null;
+  if (kite.status().mock) {
+    const k = `${exchange}:${symbol}`;
+    const last = (await kite.quotes([k]))[k]?.last || 500;
+    const px = last * (0.6 + Math.random() * 0.5);
+    fake = { id: `${k}|${start}|${Math.random()}`, entryTime: new Date(start).toISOString(), entryPrice: px, initialStop: px * 0.75, status: 'OPEN' };
+  }
+  const plan = { interval, from, to };
+  const candles = await kite.candles({ exchange, symbol, interval, from, to, trade: fake, plan });
+  const startIndex = Math.max(0, candles.findIndex((c) => c[0] >= start));
+  const out = { exchange, symbol, interval, candles, startIndex: candles.findIndex((c) => c[0] >= start) < 0 ? candles.length : startIndex };
+  if (settled && candles.length) { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, JSON.stringify(out)); }
+  return out;
+});
+on('POST', '/api/practice/sessions', async (req) => store.createPracticeSession(await readJson(req)));
+on('PUT', '/api/practice/sessions/:id', async (req, p) => store.updatePracticeSession(p.id, await readJson(req)));
+on('DELETE', '/api/practice/sessions/:id', (req, p) => { store.deletePracticeSession(p.id); return { ok: true }; });
 on('POST', '/api/reviews', async (req) => store.upsertReview(await readJson(req)));
 on('DELETE', '/api/reviews/:id', (req, p) => { store.deleteReview(p.id); return { ok: true }; });
 on('PUT', '/api/settings', async (req) => store.updateSettings(await readJson(req)));

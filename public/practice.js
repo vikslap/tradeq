@@ -1,0 +1,500 @@
+// 🎮 Practice — chart replay game on real Kite candles.
+// Paper trades live in their own record (state.practice) and never touch the journal.
+import { createChart, CandlestickSeries, HistogramSeries, LineSeries, LineStyle, CrosshairMode, createSeriesMarkers } from './vendor/lightweight-charts.mjs';
+
+// ---------------------------------------------------------------------------
+// Pure engine (also used by tests)
+// ---------------------------------------------------------------------------
+export const SURPRISE = [
+  'RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'ITC', 'LT', 'AXISBANK', 'KOTAKBANK', 'BHARTIARTL', 'TATAMOTORS',
+  'MARUTI', 'SUNPHARMA', 'TITAN', 'BAJFINANCE', 'HCLTECH', 'WIPRO', 'ASIANPAINT', 'ULTRACEMCO', 'NTPC', 'POWERGRID', 'TATASTEEL',
+  'JSWSTEEL', 'HINDUNILVR', 'NESTLEIND', 'M&M', 'DIXON', 'TRENT', 'HAL', 'BEL', 'TATAPOWER', 'DLF', 'POLYCAB', 'PERSISTENT',
+];
+
+/** Random weekday start date with enough future data for the chosen interval. */
+export function randomStart(interval, now = Date.now(), rnd = Math.random) {
+  const DAY = 86400000;
+  const [minBack, maxBack] = { day: [320, 365 * 12], '60minute': [70, 365 * 3], '15minute': [30, 365 * 2], '5minute': [10, 365 * 2] }[interval];
+  const d = new Date(now - (minBack + rnd() * (maxBack - minBack)) * DAY);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  d.setHours(9, 15, 0, 0);
+  return d.toISOString();
+}
+
+const dirOf = (side) => (side === 'SHORT' ? -1 : 1);
+
+/**
+ * Advance a position through one bar. Market orders fill at the bar's open; stops and
+ * targets fill intrabar, at the open if the bar gaps past them. If a bar touches both,
+ * the stop is assumed first (conservative). Returns { position, closed }.
+ */
+export function stepBar(position, bar, barIndex, { pendingExit = false } = {}) {
+  if (!position) return { position: null, closed: null };
+  const [ts, o, h, l] = bar;
+  const d = dirOf(position.side);
+  const close = (price, reason) => ({ position: null, closed: { ...position, exitPrice: round2(price), exitBar: barIndex, exitTime: new Date(ts).toISOString(), exitReason: reason } });
+  if (pendingExit) return close(o, 'Manual');
+  const { stop, target } = position;
+  if (stop != null) {
+    const gapped = d > 0 ? o <= stop : o >= stop;
+    const touched = d > 0 ? l <= stop : h >= stop;
+    if (gapped) return close(o, 'Stop (gap)');
+    if (touched) return close(stop, 'Stop');
+  }
+  if (target != null) {
+    const gapped = d > 0 ? o >= target : o <= target;
+    const touched = d > 0 ? h >= target : l <= target;
+    if (gapped) return close(o, 'Target (gap)');
+    if (touched) return close(target, 'Target');
+  }
+  return { position, closed: null };
+}
+const round2 = (v) => Math.round(v * 100) / 100;
+
+export function tradeResult(t) {
+  const d = dirOf(t.side);
+  const pnl = t.exitPrice != null ? (t.exitPrice - t.entryPrice) * d * t.qty : null;
+  const risk = t.initialStop != null ? Math.abs(t.entryPrice - t.initialStop) * t.qty : null;
+  return { pnl, r: pnl != null && risk > 0 ? pnl / risk : null, risk };
+}
+
+/** Practice XP: same habits as the journal, scaled down. */
+export function scoreTrade(t, riskLimit) {
+  const { r, risk } = tradeResult(t);
+  const items = [];
+  items.push(t.initialStop != null ? { xp: 10, label: 'Stop set before entry' } : { xp: -10, label: 'No stop at entry' });
+  if (t.target != null) items.push({ xp: 3, label: 'Target planned' });
+  if (risk != null) items.push(risk <= riskLimit * 1.05 ? { xp: 5, label: 'Risk within limit' } : { xp: -10, label: 'Oversized risk' });
+  if (t.widened) items.push({ xp: -10 * Math.min(3, t.widened), label: `Widened stop ${t.widened}×` });
+  if (r != null && r < 0 && r >= -1.1) items.push({ xp: 10, label: 'Loss kept within 1R' });
+  if (r != null && r >= 3) items.push({ xp: 15, label: 'Let it run (3R+)' });
+  else if (r != null && r >= 2) items.push({ xp: 10, label: '2R+ winner' });
+  return items;
+}
+
+export function practiceStats(sessions, riskLimit) {
+  const trades = sessions.flatMap((s) => (s.trades || []).map((t) => ({ ...t, session: s })));
+  const res = trades.map((t) => ({ t, ...tradeResult(t), xp: scoreTrade(t, s_risk(t.session, riskLimit)).reduce((a, b) => a + b.xp, 0) }));
+  const rs = res.map((x) => x.r).filter((v) => v != null);
+  const wins = res.filter((x) => x.pnl > 0).length;
+  const sessionXp = sessions.filter((s) => s.status === 'done' && (s.cursor ?? 0) - (s.startIndex ?? 0) >= 20).length * 5;
+  return {
+    trades: res.length, wins, winRate: res.length ? wins / res.length : null,
+    avgR: rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : null, totalR: rs.reduce((a, b) => a + b, 0),
+    xp: Math.max(0, res.reduce((a, b) => a + b.xp, 0) + sessionXp), sessions: sessions.length,
+  };
+}
+const s_risk = (s, fallback) => s?.risk || fallback;
+
+// ---------------------------------------------------------------------------
+// UI
+// ---------------------------------------------------------------------------
+let ctx; // { api, state(), kite(), toast, esc, reload, openModal, closeModal }
+let G = null; // active game { session, data, cursor, position, trades, pendingExit, chart, ... }
+let auto = null;
+
+export function initPractice(c) { ctx = c; }
+
+const nf2 = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf0 = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
+const money = (v) => (v == null ? '—' : `${v < 0 ? '−' : v > 0 ? '+' : ''}₹${nf0.format(Math.abs(v))}`);
+const rfmt = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}R`);
+const cls = (v) => (v > 0 ? 'pos' : v < 0 ? 'neg' : '');
+const IV_LABEL = { day: 'Daily', '60minute': 'Hourly', '15minute': '15-min', '5minute': '5-min' };
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const toTime = (ms, iv) => (iv === 'day' ? new Date(ms + 19800000).toISOString().slice(0, 10) : Math.floor(ms / 1000) + 19800);
+const fmtBar = (ms, iv) => new Date(ms).toLocaleString('en-IN', iv === 'day' ? { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' } : { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+export function pagePractice() {
+  const st = ctx.state();
+  const sessions = st.practice?.sessions || [];
+  const P = practiceStats(sessions, st.settings.maxRiskPerTrade);
+  const active = G && G.session.status === 'active';
+  return `<div class="page-h"><div><h1>🎮 Practice</h1><p>Replay real charts bar by bar and trade them with paper money. Nothing here touches your journal or Zerodha.</p></div>
+    ${active ? '<button class="btn" data-pa="end">🏁 End session</button>' : ''}</div>
+  <div class="kpis" style="margin-bottom:16px">
+    ${[['Practice XP', `<span class="gold">${nf0.format(P.xp)}</span>`, 'separate from your journal XP'], ['Sessions', P.sessions, `${P.trades} paper trades`],
+      ['Win rate', P.winRate == null ? '—' : `${Math.round(P.winRate * 100)}%`, `${P.wins} wins`], ['Avg R', `<span class="${cls(P.avgR)}">${rfmt(P.avgR)}</span>`, 'per paper trade'],
+      ['Total R', `<span class="${cls(P.totalR)}">${rfmt(P.totalR)}</span>`, 'all sessions'], ['Data', ctx.kite().mock ? '<span class="gold">Demo</span>' : ctx.kite().connected ? 'Kite' : '<span class="neg">Offline</span>', ctx.kite().connected ? 'real historical candles' : 'connect Kite in Settings']]
+    .map(([k, v, s]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('')}
+  </div>
+  <div id="pa-root">${active ? gameShell() : setupHtml(st) + historyHtml(sessions)}</div>`;
+}
+
+function setupHtml(st) {
+  const ivs = Object.entries(IV_LABEL);
+  return `<section class="card" style="margin-bottom:16px"><header class="card-h"><h3>New replay</h3><span class="sub">Kite needed for real data</span></header>
+    <form id="pa-setup" class="stack">
+      <div class="grid-3">
+        <div class="field" style="grid-column:span 2"><label>Stock or index</label><div class="input-row"><input class="input" name="symbol" placeholder="e.g. RELIANCE, NIFTY 50" autocomplete="off"><button type="button" class="btn" data-pa="surprise">🎲 Surprise me</button></div>
+          <div class="hint">Surprise picks a liquid NSE stock and a random date — best with blind mode.</div></div>
+        <div class="field"><label>Exchange</label><select class="input" name="exchange"><option>NSE</option><option>BSE</option><option>NFO</option><option>MCX</option></select></div>
+      </div>
+      <div class="row wrap" style="gap:16px;align-items:flex-end">
+        <div class="field"><label>Candles</label><div class="seg">${ivs.map(([v, l], i) => `<label><input type="radio" name="interval" value="${v}" ${i === 0 ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></div>
+        <div class="field"><label>Start from</label><input class="input" type="date" name="start" max="${new Date(Date.now() - 86400000 * 5).toISOString().slice(0, 10)}"></div>
+        <label class="row" style="gap:8px;padding-bottom:8px"><input type="checkbox" name="blind" checked> <span><b>Blind mode</b> <span class="faint">— hide name & dates until the end</span></span></label>
+      </div>
+      <div class="grid-3">
+        <div class="field"><label>Paper capital (₹)</label><input class="input num" type="number" name="capital" value="${st.settings.capital}"></div>
+        <div class="field"><label>Risk per trade (₹)</label><input class="input num" type="number" name="risk" value="${st.settings.maxRiskPerTrade}"></div>
+        <div class="field" style="justify-content:flex-end"><button class="btn primary" type="submit">▶ Start replay</button></div>
+      </div>
+      <div class="err" id="pa-err"></div>
+    </form></section>`;
+}
+
+function historyHtml(sessions) {
+  if (!sessions.length) return '<div class="card empty"><div class="big">🎮</div><h2>No practice yet</h2><p>Start with <b>🎲 Surprise me</b> on daily candles in blind mode: read the chart, plan the trade, step forward and see if your stop and target hold up.</p></div>';
+  const risk = ctx.state().settings.maxRiskPerTrade;
+  return `<section class="card"><header class="card-h"><h3>Sessions</h3><span class="sub">${sessions.length}</span></header><div class="table-wrap"><table class="tbl"><thead><tr><th>Played</th><th>Instrument</th><th>Candles</th><th class="r">Trades</th><th class="r">P&L</th><th class="r">Total R</th><th class="r">XP</th><th></th></tr></thead><tbody>
+    ${sessions.map((s) => {
+      const res = (s.trades || []).map(tradeResult); const pnl = res.reduce((a, b) => a + (b.pnl || 0), 0); const tr = res.reduce((a, b) => a + (b.r || 0), 0);
+      const xp = (s.trades || []).reduce((a, t) => a + scoreTrade(t, s.risk || risk).reduce((x, y) => x + y.xp, 0), 0);
+      const hidden = s.blind && s.status === 'active';
+      return `<tr><td class="muted">${new Date(s.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
+        <td>${hidden ? '🙈 hidden' : `<span class="sym">${ctx.esc(s.symbol)}</span> <span class="faint">${new Date(s.start).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</span>`}</td>
+        <td>${IV_LABEL[s.interval]}</td><td class="r num">${(s.trades || []).length}</td><td class="r num ${cls(pnl)}">${money(pnl)}</td><td class="r num ${cls(tr)}">${rfmt(tr)}</td>
+        <td class="r">${xp ? `<span class="xp-pill ${xp > 0 ? 'plus' : 'minus'}">${xp > 0 ? '+' : ''}${xp}</span>` : '<span class="faint">0</span>'}</td>
+        <td class="r">${s.status === 'active' ? `<button class="btn sm primary" data-pa="resume" data-id="${s.id}">Resume</button>` : `<button class="btn sm" data-pa="review" data-id="${s.id}">Review</button>`} <button class="btn sm ghost" data-pa="delete" data-id="${s.id}">✕</button></td></tr>`;
+    }).join('')}</tbody></table></div></section>`;
+}
+
+function gameShell() {
+  return `<div class="pa-grid">
+    <section class="card" style="padding:12px"><div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <div class="row"><b id="pa-title"></b><span class="pill" id="pa-iv"></span></div><span class="muted mono" id="pa-date"></span></div>
+      <div id="pa-chart" style="height:520px"></div>
+      <div class="row wrap" style="margin-top:10px;gap:8px">
+        <button class="btn" data-pa="next">▶ Next bar <span class="faint">(→)</span></button>
+        <button class="btn" data-pa="skip">⏭ +10 bars</button>
+        <button class="btn" data-pa="auto" id="pa-auto">⏯ Auto-play</button>
+        <div class="seg sm-seg">${[1, 2, 5].map((x) => `<label><input type="radio" name="pa-speed" value="${x}" ${x === 1 ? 'checked' : ''}><span>${x}×</span></label>`).join('')}</div>
+        <span style="flex:1"></span><span class="faint" id="pa-left"></span>
+      </div></section>
+    <aside class="stack">
+      <section class="card" id="pa-account"></section>
+      <section class="card" id="pa-ticket"></section>
+      <section class="card"><header class="card-h"><h3>Paper trades</h3></header><div id="pa-log"></div></section>
+    </aside></div>`;
+}
+
+// ---------- mounting / binding ----------
+export function mountPractice() {
+  const root = document.getElementById('pa-root'); if (!root) { stopAuto(); return; }
+  const form = document.getElementById('pa-setup');
+  if (form) bindSetup(form);
+  if (G && G.session.status === 'active' && document.getElementById('pa-chart')) { buildChart(); paint(); }
+}
+
+function bindSetup(form) {
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const interval = fd.get('interval');
+    const symbol = String(fd.get('symbol') || '').trim().toUpperCase();
+    if (!symbol) { form.querySelector('#pa-err').textContent = 'Type a symbol, or press 🎲 Surprise me.'; return; }
+    const startDate = fd.get('start');
+    const start = startDate ? new Date(`${startDate}T09:15:00+05:30`).toISOString() : randomStart(interval);
+    await startSession({ symbol, exchange: fd.get('exchange'), interval, start, blind: fd.get('blind') === 'on', capital: fd.get('capital'), risk: fd.get('risk') });
+  });
+}
+
+async function startSession(body) {
+  const err = document.getElementById('pa-err');
+  try {
+    if (err) err.textContent = 'Loading candles…';
+    const data = await loadCandles(body);
+    if (data.startIndex < 30) throw new Error('Not enough history before that date for this instrument. Try a later date or another stock.');
+    if (data.candles.length - data.startIndex < 10) throw new Error('Not enough data after that date. Pick an earlier start.');
+    const session = await ctx.api('/api/practice/sessions', { method: 'POST', body: { ...body, start: new Date(data.candles[data.startIndex][0]).toISOString() } });
+    session.startIndex = data.startIndex; session.cursor = data.startIndex - 1;
+    await ctx.api(`/api/practice/sessions/${session.id}`, { method: 'PUT', body: { startIndex: session.startIndex, cursor: session.cursor } });
+    G = { session, data, cursor: session.cursor, position: null, trades: [], pendingExit: false, pending: null };
+    await ctx.reload();
+  } catch (e) { if (err) err.textContent = e.message; else ctx.toast(ctx.esc(e.message), 'err'); }
+}
+
+async function loadCandles(s) {
+  const qs = new URLSearchParams({ exchange: s.exchange, symbol: s.symbol, interval: s.interval, start: s.start });
+  return ctx.api(`/api/practice/candles?${qs}`);
+}
+
+async function resume(id, review = false) {
+  const s = (ctx.state().practice?.sessions || []).find((x) => x.id === id); if (!s) return;
+  try {
+    const data = await loadCandles(s);
+    if (review) return openReview(s, data);
+    G = { session: s, data, cursor: s.cursor ?? s.startIndex - 1, position: s.position, trades: [...(s.trades || [])], pendingExit: false, pending: null };
+    await ctx.reload();
+  } catch (e) { ctx.toast(ctx.esc(e.message), 'err'); }
+}
+
+// ---------- chart ----------
+function buildChart() {
+  G.chart?.remove();
+  const el = document.getElementById('pa-chart');
+  const C = { text: css('--muted'), border: css('--border'), green: css('--green'), red: css('--red'), accent: css('--accent'), gold: css('--gold') };
+  const blind = G.session.blind && G.session.status === 'active';
+  G.chart = createChart(el, {
+    autoSize: true,
+    layout: { background: { color: 'transparent' }, textColor: C.text, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, attributionLogo: true },
+    grid: { vertLines: { color: 'rgba(128,128,128,.08)' }, horzLines: { color: 'rgba(128,128,128,.08)' } },
+    crosshair: { mode: CrosshairMode.Normal },
+    rightPriceScale: { borderColor: C.border, scaleMargins: { top: 0.08, bottom: 0.2 } },
+    timeScale: { borderColor: C.border, visible: !blind, timeVisible: G.data.interval !== 'day', rightOffset: 12 },
+  });
+  G.series = G.chart.addSeries(CandlestickSeries, { upColor: C.green, downColor: C.red, borderVisible: false, wickUpColor: C.green, wickDownColor: C.red });
+  G.vol = G.chart.addSeries(HistogramSeries, { priceScaleId: 'v', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+  G.chart.priceScale('v').applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
+  G.ema = [20, 50].map((n, i) => ({ n, s: G.chart.addSeries(LineSeries, { color: i ? '#38bdf8' : '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }) }));
+  G.markers = createSeriesMarkers(G.series, []);
+  G.lines = [];
+  G.C = C;
+  const vis = G.data.candles.slice(0, G.cursor + 1);
+  G.series.setData(vis.map(bar));
+  G.vol.setData(vis.map(volBar));
+  for (const e of G.ema) e.s.setData(emaData(vis, e.n));
+  G.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, vis.length - 120), to: vis.length + 12 });
+}
+const bar = (c) => ({ time: toTime(c[0], G.data.interval), open: c[1], high: c[2], low: c[3], close: c[4] });
+const volBar = (c) => ({ time: toTime(c[0], G.data.interval), value: c[5] || 0, color: c[4] >= c[1] ? 'rgba(34,197,94,.35)' : 'rgba(244,80,107,.35)' });
+function emaData(vis, n) {
+  const k = 2 / (n + 1); let prev = null;
+  return vis.map((c, i) => {
+    if (i < n - 1) return { time: toTime(c[0], G.data.interval) };
+    prev = prev == null ? vis.slice(0, n).reduce((a, x) => a + x[4], 0) / n : c[4] * k + prev * (1 - k);
+    return { time: toTime(c[0], G.data.interval), value: prev };
+  });
+}
+
+function refreshOverlays() {
+  for (const l of G.lines) G.series.removePriceLine(l);
+  G.lines = [];
+  const p = G.position; const C = G.C;
+  if (p) {
+    G.lines.push(G.series.createPriceLine({ price: p.entryPrice, title: 'ENTRY', color: C.accent, lineWidth: 2, lineStyle: LineStyle.Solid }));
+    if (p.stop != null) G.lines.push(G.series.createPriceLine({ price: p.stop, title: 'SL', color: C.red, lineStyle: LineStyle.Dashed }));
+    if (p.target != null) G.lines.push(G.series.createPriceLine({ price: p.target, title: 'TGT', color: C.green, lineStyle: LineStyle.Dashed }));
+  }
+  const iv = G.data.interval; const cs = G.data.candles;
+  const marks = [];
+  for (const t of [...G.trades, ...(p ? [p] : [])]) {
+    const long = t.side === 'LONG';
+    if (cs[t.entryBar]) marks.push({ time: toTime(cs[t.entryBar][0], iv), position: long ? 'belowBar' : 'aboveBar', color: C.accent, shape: long ? 'arrowUp' : 'arrowDown', text: `${long ? 'Buy' : 'Short'} ${nf2.format(t.entryPrice)}` });
+    if (t.exitBar != null && cs[t.exitBar]) marks.push({ time: toTime(cs[t.exitBar][0], iv), position: long ? 'aboveBar' : 'belowBar', color: C.gold, shape: 'circle', text: `${t.exitReason} ${nf2.format(t.exitPrice)}` });
+  }
+  marks.sort((a, b) => (a.time > b.time ? 1 : a.time < b.time ? -1 : 0));
+  G.markers.setMarkers(marks);
+}
+
+// ---------- engine glue ----------
+function lastBar() { return G.data.candles[G.cursor]; }
+
+function next(n = 1) {
+  for (let k = 0; k < n; k++) {
+    if (G.cursor >= G.data.candles.length - 1) { stopAuto(); ctx.toast('No more data in this replay — ending the session.'); return endSession(); }
+    G.cursor++;
+    const c = G.data.candles[G.cursor];
+    // Pending market order fills at this bar's open.
+    if (G.pending) {
+      G.position = { ...G.pending, entryPrice: c[1], entryBar: G.cursor, entryTime: new Date(c[0]).toISOString() };
+      G.pending = null;
+    }
+    const { position, closed } = stepBar(G.position, c, G.cursor, { pendingExit: G.pendingExit });
+    G.pendingExit = false;
+    G.position = position;
+    G.series.update(bar(c)); G.vol.update(volBar(c));
+    const vis = G.data.candles.slice(0, G.cursor + 1);
+    for (const e of G.ema) { const d = emaData(vis.slice(-Math.max(e.n * 3, 60)), e.n).at(-1); if (d.value != null) e.s.update(d); }
+    if (closed) {
+      G.trades.push(closed);
+      const { pnl, r } = tradeResult(closed);
+      const xp = scoreTrade(closed, G.session.risk).reduce((a, b) => a + b.xp, 0);
+      ctx.toast(`<div class="t-h"><span class="${cls(pnl)} mono">${money(pnl)}</span><span>${closed.exitReason} · ${rfmt(r)}</span></div><div class="muted" style="font-size:12px;margin-top:4px">Practice ${xp >= 0 ? '+' : ''}${xp} XP</div>`);
+      stopAuto(); save(true);
+      break;
+    }
+  }
+  refreshOverlays(); paint(); save();
+}
+
+let saveTimer = null;
+function save(now = false) {
+  clearTimeout(saveTimer);
+  if (!G) return;
+  // Snapshot now: the session may end (G = null) before a delayed save runs.
+  const id = G.session.id; const body = { cursor: G.cursor, trades: [...G.trades], position: G.position };
+  const go = () => ctx.api(`/api/practice/sessions/${id}`, { method: 'PUT', body }).catch(() => {});
+  if (now) go(); else saveTimer = setTimeout(go, 1500);
+}
+
+function stopAuto() { if (auto) { clearInterval(auto); auto = null; } const b = document.getElementById('pa-auto'); if (b) b.textContent = '⏯ Auto-play'; }
+function toggleAuto() {
+  if (auto) return stopAuto();
+  const speed = Number(document.querySelector('input[name="pa-speed"]:checked')?.value || 1);
+  auto = setInterval(() => { if (!document.getElementById('pa-chart')) return stopAuto(); next(); }, 900 / speed);
+  document.getElementById('pa-auto').textContent = '⏸ Pause';
+}
+
+async function endSession() {
+  stopAuto(); clearTimeout(saveTimer);
+  if (G.position) { // close any open position at the last close
+    const c = lastBar();
+    G.trades.push({ ...G.position, exitPrice: c[4], exitBar: G.cursor, exitTime: new Date(c[0]).toISOString(), exitReason: 'Session end' });
+    G.position = null;
+  }
+  const s = await ctx.api(`/api/practice/sessions/${G.session.id}`, { method: 'PUT', body: { cursor: G.cursor, trades: G.trades, position: null, status: 'done' } });
+  const done = G; G = null;
+  await ctx.reload();
+  openReview(s, done.data);
+}
+
+// ---------- side panels ----------
+function paint() {
+  if (!G || !document.getElementById('pa-account')) return;
+  const s = G.session; const c = lastBar(); const iv = G.data.interval;
+  const blind = s.blind && s.status === 'active';
+  document.getElementById('pa-title').textContent = blind ? '🙈 Mystery chart' : `${s.symbol}`;
+  document.getElementById('pa-iv').textContent = IV_LABEL[iv];
+  document.getElementById('pa-date').textContent = blind ? `Bar ${G.cursor - G.session.startIndex + 1}` : c ? fmtBar(c[0], iv) : '';
+  document.getElementById('pa-left').textContent = `${G.data.candles.length - 1 - G.cursor} bars left`;
+  const realised = G.trades.reduce((a, t) => a + (tradeResult(t).pnl || 0), 0);
+  const p = G.position;
+  const unreal = p ? (c[4] - p.entryPrice) * dirOf(p.side) * p.qty : 0;
+  const totalR = G.trades.reduce((a, t) => a + (tradeResult(t).r || 0), 0);
+  document.getElementById('pa-account').innerHTML = `
+    <div class="stat-line"><span class="muted">Equity</span><b>${money(s.capital + realised + unreal).replace('+', '')}</b></div>
+    <div class="stat-line"><span class="muted">Realised</span><b class="${cls(realised)}">${money(realised)}</b></div>
+    <div class="stat-line"><span class="muted">Open P&L</span><b class="${cls(unreal)}">${p ? money(unreal) : '—'}</b></div>
+    <div class="stat-line"><span class="muted">Session R</span><b class="${cls(totalR)}">${rfmt(totalR)}</b></div>
+    <div class="stat-line"><span class="muted">Last close</span><b>${nf2.format(c[4])}</b></div>`;
+  document.getElementById('pa-ticket').innerHTML = p ? positionHtml(p, c) : G.pending ? `<div class="note">Order queued — fills at the next bar's open.</div>` : ticketHtml(c);
+  document.getElementById('pa-log').innerHTML = G.trades.length ? `<table class="tbl"><tbody>${[...G.trades].reverse().map((t) => { const { pnl, r } = tradeResult(t); return `<tr><td><span class="side ${t.side}">${t.side === 'LONG' ? 'L' : 'S'}</span></td><td class="num">${nf2.format(t.entryPrice)} → ${nf2.format(t.exitPrice)}</td><td class="faint">${ctx.esc(t.exitReason)}</td><td class="r num ${cls(pnl)}">${rfmt(r)}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty-sm">No paper trades yet.</div>';
+  bindTicket();
+}
+
+function ticketHtml(c) {
+  return `<header class="card-h" style="margin-bottom:10px"><h3>Plan a trade</h3><span class="sub">fills at next open</span></header>
+    <form id="pa-order" class="stack" style="gap:10px">
+      <div class="seg"><label><input type="radio" name="side" value="LONG" checked><span class="long">▲ Buy</span></label><label><input type="radio" name="side" value="SHORT"><span class="short">▼ Short</span></label></div>
+      <div class="grid-2"><div class="field"><label>Stop-loss</label><input class="input num" name="stop" type="number" step="any"></div><div class="field"><label>Target</label><input class="input num" name="target" type="number" step="any"></div></div>
+      <div class="field"><label>Quantity</label><div class="input-row"><input class="input num" name="qty" type="number" min="1" step="1"><button type="button" class="btn sm" data-pa="size">Size to ₹${nf0.format(G.session.risk)} risk</button></div></div>
+      <div class="faint" id="pa-preview" style="font-size:12px;min-height:16px"></div>
+      <div class="err" id="pa-oerr"></div>
+      <button class="btn primary" type="submit">Place order</button>
+    </form>`;
+}
+
+function positionHtml(p, c) {
+  const unreal = (c[4] - p.entryPrice) * dirOf(p.side) * p.qty;
+  const r = p.initialStop != null ? unreal / (Math.abs(p.entryPrice - p.initialStop) * p.qty) : null;
+  return `<header class="card-h" style="margin-bottom:10px"><h3><span class="side ${p.side}">${p.side}</span> ${nf0.format(p.qty)} @ ${nf2.format(p.entryPrice)}</h3><b class="mono ${cls(unreal)}">${rfmt(r)}</b></header>
+    <form id="pa-manage" class="stack" style="gap:10px">
+      <div class="grid-2"><div class="field"><label>Stop-loss</label><input class="input num" name="stop" type="number" step="any" value="${p.stop ?? ''}"></div><div class="field"><label>Target</label><input class="input num" name="target" type="number" step="any" value="${p.target ?? ''}"></div></div>
+      <div class="row"><button class="btn" type="submit">Update stop / target</button><button class="btn danger" type="button" data-pa="close">Exit at next open</button></div>
+      <div class="faint" style="font-size:12px">Trailing the stop is free; widening it costs practice XP.</div>
+      <div class="err" id="pa-merr"></div>
+    </form>`;
+}
+
+function bindTicket() {
+  const f = document.getElementById('pa-order');
+  if (f) {
+    const prev = () => {
+      const c = lastBar(); const side = f.side.value; const stop = Number(f.stop.value) || null; const tgt = Number(f.target.value) || null; const q = Number(f.qty.value) || 0;
+      const rpu = stop ? Math.abs(c[4] - stop) : null;
+      document.getElementById('pa-preview').innerHTML = [rpu && q ? `risk ≈ ₹${nf0.format(rpu * q)}` : '', rpu && tgt ? `R:R ≈ 1:${(Math.abs(tgt - c[4]) / rpu).toFixed(2)}` : '', side === 'LONG' && stop && stop >= c[4] ? '<span class="neg">stop is above price</span>' : '', side === 'SHORT' && stop && stop <= c[4] ? '<span class="neg">stop is below price</span>' : ''].filter(Boolean).join(' · ');
+    };
+    f.addEventListener('input', prev);
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const c = lastBar(); const side = f.side.value; const qty = Math.floor(Number(f.qty.value));
+      const stop = f.stop.value === '' ? null : Number(f.stop.value); const target = f.target.value === '' ? null : Number(f.target.value);
+      const err = (m) => { document.getElementById('pa-oerr').textContent = m; };
+      if (!(qty > 0)) return err('Enter a quantity (or size to risk).');
+      if (stop != null && (side === 'LONG' ? stop >= c[4] : stop <= c[4])) return err(`Stop must be ${side === 'LONG' ? 'below' : 'above'} the current price.`);
+      if (target != null && (side === 'LONG' ? target <= c[4] : target >= c[4])) return err(`Target must be ${side === 'LONG' ? 'above' : 'below'} the current price.`);
+      G.pending = { side, qty, stop, initialStop: stop, target, stopMoves: 0, widened: 0 };
+      next(); // market order: fills at the next bar's open
+    });
+  }
+  const m = document.getElementById('pa-manage');
+  if (m) {
+    m.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const p = G.position; const c = lastBar(); const d = dirOf(p.side);
+      const stop = m.stop.value === '' ? null : Number(m.stop.value); const target = m.target.value === '' ? null : Number(m.target.value);
+      if (stop != null && (d > 0 ? stop >= c[4] : stop <= c[4])) { document.getElementById('pa-merr').textContent = 'That stop would already be hit — use Exit instead.'; return; }
+      if (stop !== p.stop) {
+        if (p.stop != null && stop != null && (stop - p.stop) * d < 0) p.widened = (p.widened || 0) + 1;
+        if (p.stop == null && p.initialStop == null) p.initialStop = stop;
+        p.stop = stop; p.stopMoves = (p.stopMoves || 0) + 1;
+      }
+      p.target = target;
+      refreshOverlays(); paint(); save(true);
+    });
+  }
+}
+
+export function practiceAction(name, el) {
+  const id = el?.dataset?.id;
+  switch (name) {
+    case 'surprise': {
+      const f = document.getElementById('pa-setup'); if (!f) return;
+      f.symbol.value = SURPRISE[Math.floor(Math.random() * SURPRISE.length)]; f.exchange.value = 'NSE'; f.start.value = ''; f.blind.checked = true;
+      f.requestSubmit(); return;
+    }
+    case 'next': return G && next();
+    case 'skip': return G && next(10);
+    case 'auto': return G && toggleAuto();
+    case 'end': return G && endSession();
+    case 'close': if (G?.position) { G.pendingExit = true; next(); } return;
+    case 'size': {
+      const f = document.getElementById('pa-order'); const c = lastBar(); const stop = Number(f.stop.value);
+      if (!stop) { document.getElementById('pa-oerr').textContent = 'Set a stop first.'; return; }
+      f.qty.value = Math.max(1, Math.floor(G.session.risk / Math.abs(c[4] - stop))); f.dispatchEvent(new Event('input')); return;
+    }
+    case 'resume': return resume(id);
+    case 'review': return resume(id, true);
+    case 'delete': return (async () => { if (G?.session.id === id) G = null; await ctx.api(`/api/practice/sessions/${id}`, { method: 'DELETE' }); await ctx.reload(); })();
+    default:
+  }
+}
+
+export function practiceKey(e) {
+  if (!G || !document.getElementById('pa-chart')) return false;
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return false;
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); return true; }
+  return false;
+}
+
+// ---------- review ----------
+function openReview(s, data) {
+  const risk = ctx.state().settings.maxRiskPerTrade;
+  const res = (s.trades || []).map((t) => ({ t, ...tradeResult(t), items: scoreTrade(t, s.risk || risk) }));
+  const pnl = res.reduce((a, b) => a + (b.pnl || 0), 0); const tr = res.reduce((a, b) => a + (b.r || 0), 0);
+  const xp = res.reduce((a, b) => a + b.items.reduce((x, y) => x + y.xp, 0), 0);
+  const first = data.candles[s.startIndex]; const last = data.candles[s.cursor ?? data.candles.length - 1];
+  const el = ctx.openModal(`<div class="modal" style="width:min(1200px,100%)"><div class="modal-h"><h2>🏁 ${ctx.esc(s.symbol)} <span class="pill">${IV_LABEL[s.interval]}</span> <span class="faint" style="font-size:13px;font-weight:500">${first ? fmtBar(first[0], s.interval) : ''} → ${last ? fmtBar(last[0], s.interval) : ''}</span></h2><button class="btn ghost sm" data-action="close-modal">✕</button></div>
+    <div class="modal-b"><div class="kpis" style="margin-bottom:12px;grid-template-columns:repeat(4,1fr)">
+      ${[['Trades', res.length], ['P&L', `<span class="${cls(pnl)}">${money(pnl)}</span>`], ['Total R', `<span class="${cls(tr)}">${rfmt(tr)}</span>`], ['Practice XP', `<span class="gold">${xp > 0 ? '+' : ''}${xp}</span>`]].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
+      <div id="pa-review-chart" style="height:440px"></div>
+      ${res.length ? `<div class="table-wrap" style="margin-top:12px"><table class="tbl"><tbody>${res.map((x) => `<tr><td><span class="side ${x.t.side}">${x.t.side}</span></td><td class="num">${nf0.format(x.t.qty)} @ ${nf2.format(x.t.entryPrice)} → ${nf2.format(x.t.exitPrice)}</td><td class="faint">${ctx.esc(x.t.exitReason)}</td><td class="r num ${cls(x.pnl)}">${money(x.pnl)}</td><td class="r num ${cls(x.r)}">${rfmt(x.r)}</td><td class="faint" style="white-space:normal;font-size:12px">${x.items.map((i) => `${i.xp > 0 ? '+' : ''}${i.xp} ${ctx.esc(i.label)}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-sm">No trades taken — sometimes the best trade is none.</div>'}
+    </div></div>`, { dismissable: true });
+  // Full chart including what happened after you stopped.
+  const C = { text: css('--muted'), border: css('--border'), green: css('--green'), red: css('--red'), accent: css('--accent'), gold: css('--gold') };
+  const chart = createChart(el.querySelector('#pa-review-chart'), { autoSize: true, layout: { background: { color: 'transparent' }, textColor: C.text, fontSize: 11, attributionLogo: true }, grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(128,128,128,.08)' } }, timeScale: { borderColor: C.border, timeVisible: s.interval !== 'day' }, rightPriceScale: { borderColor: C.border } });
+  const ser = chart.addSeries(CandlestickSeries, { upColor: C.green, downColor: C.red, borderVisible: false, wickUpColor: C.green, wickDownColor: C.red });
+  ser.setData(data.candles.map((c) => ({ time: toTime(c[0], s.interval), open: c[1], high: c[2], low: c[3], close: c[4] })));
+  const marks = [];
+  if (first) marks.push({ time: toTime(first[0], s.interval), position: 'aboveBar', color: C.text, shape: 'square', text: 'Replay start' });
+  for (const t of s.trades || []) {
+    const long = t.side === 'LONG';
+    if (data.candles[t.entryBar]) marks.push({ time: toTime(data.candles[t.entryBar][0], s.interval), position: long ? 'belowBar' : 'aboveBar', color: C.accent, shape: long ? 'arrowUp' : 'arrowDown', text: `${long ? 'Buy' : 'Short'} ${nf2.format(t.entryPrice)}` });
+    if (data.candles[t.exitBar]) marks.push({ time: toTime(data.candles[t.exitBar][0], s.interval), position: long ? 'aboveBar' : 'belowBar', color: C.gold, shape: 'circle', text: `${t.exitReason} ${nf2.format(t.exitPrice)}` });
+  }
+  marks.sort((a, b) => (a.time > b.time ? 1 : a.time < b.time ? -1 : 0));
+  createSeriesMarkers(ser, marks);
+  chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, s.startIndex - 60), to: Math.min(data.candles.length, (s.cursor ?? s.startIndex) + 40) });
+}

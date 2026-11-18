@@ -69,6 +69,20 @@ The import pairs buys and sells into complete trades. Adding to a position count
 
 Imported trades count in your P&L, equity curve and Insights, but **don't earn or lose XP**. XP is for journaling as you trade.
 
+## 🎮 Practice: chart replay
+
+A separate section for paper trading on **real historical Kite candles**. Nothing in it touches your journal, stats or Zerodha account.
+
+- **Start a replay**: type a stock or index (e.g. `RELIANCE`, `NIFTY 50`) or press **🎲 Surprise me** for a random liquid NSE stock on a random past date. Choose daily, hourly, 15-min or 5-min candles.
+- **Blind mode** (on by default) hides the name and dates, so you trade the chart, not what you remember. Everything is revealed at the end.
+- **Step through** bar by bar (**→** or Space), +10 bars, or auto-play at 1× / 2× / 5×.
+- **Orders fill realistically**: market orders fill at the next bar's open. Stops and targets fill intrabar, **at the open if price gaps past them** (so gap-downs hurt, just like real life). If one bar hits both, the stop is assumed first.
+- Size to your ₹ risk in one click, trail the stop (free) or widen it (costs XP), and exit at the next open.
+- **Practice XP** follows the journal's habits (stop before entry, risk within limit, losses held to 1R, letting winners run) and is kept separate from your real XP.
+- **Review**: when the session ends you see the full chart, including what happened after you stopped, plus every paper trade with its R and XP. You can resume unfinished sessions any time.
+
+Kite's historical data covers stocks and indices (daily for many years, intraday for recent years) and current futures. Expired option contracts aren't available. Past candles are cached on your PC.
+
 ## Linked positions (pairs, spreads, hedges)
 
 In **Journal**, tick two or more trades and click **🔗 Link as one position**. It suggests a name such as *NIFTY 26N17 23400/23600 CE*, which you can change.

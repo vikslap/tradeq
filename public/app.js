@@ -3,6 +3,7 @@ import { computeStats, groupBy, rHistogram, investmentStats } from './stats.js';
 import { reconcile } from './sync.js';
 import { mountTradeChart, mountEquityChart, INTERVAL_LABEL } from './tradechart.js';
 import { parseTradebook, planImport } from './tradebook.js';
+import { initPractice, pagePractice, mountPractice, practiceAction, practiceKey } from './practice.js';
 
 // =====================================================================
 // Utilities
@@ -151,9 +152,10 @@ function render() {
   const { page } = route();
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === page));
   renderTop();
-  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, achievements: pageAchievements, settings: pageSettings };
+  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, settings: pageSettings };
   $('#main').innerHTML = (pages[page] || pageDashboard)();
   mountEquity();
+  if (page === 'practice') mountPractice();
   if (page === 'settings') bindSettings();
   if (page === 'review') bindReview();
   if (S.drawerId) renderDrawer();
@@ -1458,11 +1460,14 @@ function bindGlobal() {
   document.addEventListener('click', (e) => {
     const ov = e.target.closest('.overlay');
     if (ov && e.target === ov && ov.hasAttribute('data-dismiss')) return closeModal();
+    const pa = e.target.closest('[data-pa]');
+    if (pa) { e.preventDefault(); practiceAction(pa.dataset.pa, pa); return; }
     if (e.target.closest('[data-stop]')) { const cb = e.target.closest('[data-stop]').querySelector('input'); if (cb && e.target !== cb) cb.click(); return; }
     const el = e.target.closest('[data-action]');
     if (el && actions[el.dataset.action]) { if (el.tagName === 'BUTTON' && el.type !== 'submit') e.preventDefault(); actions[el.dataset.action](el, e); }
   });
   document.addEventListener('keydown', (e) => {
+    if (!$('#modal-root').innerHTML && practiceKey(e)) return;
     if (e.key === 'Escape') {
       if ($('#modal-root').innerHTML) { if ($('.overlay[data-dismiss]')) closeModal(); return; }
       if (S.drawerId) actions['close-drawer']();
@@ -1517,6 +1522,7 @@ function bindGlobal() {
 // =====================================================================
 async function boot() {
   bindGlobal();
+  initPractice({ api, state: () => S.state, kite: () => S.kite, toast, esc, reload, openModal, closeModal });
   try {
     await Promise.all([loadKite(), (async () => { S.state = await api('/api/state'); })()]);
   } catch (e) {
