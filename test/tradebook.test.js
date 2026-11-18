@@ -80,3 +80,27 @@ test('imported trades never earn or lose XP', () => {
   assert.equal(g.events.length, 0);
   assert.equal(g.discipline, null);
 });
+
+const FOHEAD = 'symbol,isin,trade_date,exchange,segment,series,trade_type,auction,quantity,price,trade_id,order_id,order_execution_time,expiry_date';
+const fo = (sym, date, side, qty, price, id, expiry) => `${sym},,${date},NSE,FO,,${side},false,${qty},${price},${id},O${id},${date}T10:00:00,${expiry}`;
+
+test('Console F&O rows (exchange NSE, segment FO) import as NFO options, both legs of a spread', () => {
+  const fills = parseTradebook([FOHEAD,
+    fo('NIFTY26N1723400CE', '2026-10-23', 'buy', 65, 103.9, 1, '2026-11-17'),
+    fo('NIFTY26N1723600CE', '2026-10-23', 'sell', 65, 60.2, 2, '2026-11-17'),
+    fo('NIFTY26N1723400CE', '2026-11-10', 'sell', 65, 1805.3, 3, '2026-11-17'),
+    fo('NIFTY26N1723600CE', '2026-11-10', 'buy', 65, 1620.1, 4, '2026-11-17')].join('\n'));
+  assert.equal(fills[0].exchange, 'NFO');
+  const p = planImport([], fills, '2026-11-18');
+  assert.deepEqual(p.newTrades.map((t) => [t.symbol, t.side, t.segment, t.status]).sort(), [
+    ['NIFTY26N1723400CE', 'LONG', 'OPT', 'CLOSED'], ['NIFTY26N1723600CE', 'SHORT', 'OPT', 'CLOSED']]);
+  assert.equal(p.unmatched.length, 0);
+});
+
+test('options left open past expiry are proposed as expired at 0', () => {
+  const fills = parseTradebook([FOHEAD, fo('BANKNIFTY26NOV58000PE', '2026-11-02', 'buy', 35, 210, 1, '2026-11-25')].join('\n'));
+  assert.equal(planImport([], fills, '2026-11-20').newTrades[0].status, 'OPEN');
+  const t = planImport([], fills, '2026-11-26').newTrades[0];
+  assert.equal(t.expired, true);
+  assert.equal(t.exitPrice, 0);
+});

@@ -1155,7 +1155,7 @@ function renderImportPlan() {
       <div class="table-wrap" style="max-height:44vh;overflow:auto"><table class="tbl"><thead><tr><th><input type="checkbox" data-tb-all="new" checked></th><th>Instrument</th><th>Side</th><th class="r">Qty</th><th>Entry</th><th>Exit</th><th class="r">Gross P&L</th><th>Type</th></tr></thead><tbody>
       ${P.newTrades.map((r, i) => { const n = pnl(r); return `<tr><td><input type="checkbox" data-tb="new" value="${i}" checked></td><td><span class="sym">${esc(r.symbol)}</span><span class="exch">${r.exchange}</span>${r.partial ? ' <span class="pill gold">partial exit</span>' : ''}</td>
         <td><span class="side ${r.side}">${r.side}</span></td><td class="r num">${nf0.format(r.qty)}</td><td class="num">${fmtDate(r.entryTime)} @ ${price(r.entryPrice)}</td>
-        <td class="num">${r.status === 'CLOSED' ? `${fmtDate(r.exitTime)} @ ${price(r.exitPrice)}` : '<span class="pill violet">still open</span>'}</td>
+        <td class="num">${r.expired ? `<span class="pill gold">expired ${fmtDate(r.exitTime)}</span> @ <input class="input num" style="width:96px;padding:4px 6px" type="number" step="any" min="0" data-tb-exit="${i}" value="${r.exitPrice ?? ''}" placeholder="settle price">` : r.status === 'CLOSED' ? `${fmtDate(r.exitTime)} @ ${price(r.exitPrice)}` : '<span class="pill violet">still open</span>'}</td>
         <td class="r num ${cls(n)}">${n == null ? '—' : money(n, { sign: true, dp: 0 })}</td><td>${typeSel(i, r.horizon)}</td></tr>`; }).join('')}</tbody></table></div></section>` : ''}
     ${P.unmatched.length ? `<p class="faint" style="font-size:12px;margin-top:12px">Skipped ${P.unmatched.length} sale${P.unmatched.length > 1 ? 's' : ''} of shares bought before this file's dates (${P.unmatched.map((u) => esc(u.symbol)).slice(0, 6).join(', ')}${P.unmatched.length > 6 ? '…' : ''}). Import an older tradebook to pair them.</p>` : ''}
     <div class="err" id="tb-err"></div>
@@ -1166,10 +1166,13 @@ async function applyImport() {
   const P = S._tb;
   const picked = (k) => $$(`[data-tb="${k}"]:checked`).map((x) => +x.value);
   const types = Object.fromEntries($$('[data-tb-type]').map((x) => [x.dataset.tbType, x.value]));
+  const exits = Object.fromEntries($$('[data-tb-exit]').map((x) => [x.dataset.tbExit, x.value]));
+  const missing = picked('new').filter((i) => P.newTrades[i].expired && (exits[i] === '' || exits[i] == null));
+  if (missing.length) { $('#tb-err').textContent = `Enter the settlement price for ${missing.map((i) => P.newTrades[i].symbol).join(', ')} (use 0 if it expired worthless).`; return; }
   const payload = {
     updates: picked('fix').map((i) => ({ id: P.dateFixes[i].trade.id, entryTime: P.dateFixes[i].entryTime, entryPrice: P.dateFixes[i].entryPrice, fillIds: P.dateFixes[i].fillIds })),
     closes: picked('close').map((i) => ({ id: P.closes[i].trade.id, exitPrice: P.closes[i].exitPrice, exitTime: P.closes[i].exitTime, fillIds: P.closes[i].fillIds })),
-    create: picked('new').map((i) => { const r = P.newTrades[i]; return { symbol: r.symbol, exchange: r.exchange, segment: r.segment, side: r.side, qty: r.qty, entryPrice: r.entryPrice, entryTime: r.entryTime, status: r.status, exitPrice: r.exitPrice, exitTime: r.exitTime, horizon: types[i] || r.horizon, fillIds: r.fillIds }; }),
+    create: picked('new').map((i) => { const r = P.newTrades[i]; return { symbol: r.symbol, exchange: r.exchange, segment: r.segment, side: r.side, qty: r.qty, entryPrice: r.entryPrice, entryTime: r.entryTime, status: r.status, exitPrice: r.expired ? Number(exits[i]) : r.exitPrice, exitTime: r.exitTime, horizon: types[i] || r.horizon, fillIds: r.fillIds }; }),
   };
   const btn = $('[data-action="tradebook-apply"]'); if (btn) btn.disabled = true;
   try {

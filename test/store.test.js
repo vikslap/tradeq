@@ -60,3 +60,10 @@ test('thesis reviews are stored and validated', () => {
   assert.equal(after.thesisReviews.length, 1);
   assert.equal(after.horizon, 'LONGTERM');
 });
+
+test('options can close at 0 (expired worthless); stocks cannot', () => {
+  const o = store.createTrade({ ...t0, symbol: 'NIFTY26N1723400CE', exchange: 'NFO', segment: 'OPT', entryPrice: 100, stopLoss: null });
+  assert.equal(store.updateTrade(o.id, { status: 'CLOSED', exitPrice: 0, exitTime: '2026-11-17T10:00:00.000Z' }).status, 'CLOSED');
+  const e = store.createTrade(t0);
+  assert.throws(() => store.updateTrade(e.id, { status: 'CLOSED', exitPrice: 0, exitTime: '2026-11-17T10:00:00.000Z' }), /Exit price/);
+});

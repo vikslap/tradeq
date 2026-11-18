@@ -37,10 +37,11 @@ export function parseTradebook(text) {
     const price = Number(r[c.price]);
     if (!symbol || !['BUY', 'SELL'].includes(side) || !(qty > 0) || !(price > 0)) continue;
     const seg = (r[c.segment] || '').toUpperCase();
-    const exchange = ((r[c.exchange] || '').toUpperCase()) || (seg === 'FO' ? 'NFO' : seg === 'COM' ? 'MCX' : 'NSE');
+    const exchange = exchangeOf((r[c.exchange] || '').toUpperCase(), seg, symbol);
+    const expiry = /^\d{4}-\d{2}-\d{2}/.test(String(r[c.expiry] || '').trim()) ? String(r[c.expiry]).trim().slice(0, 10) : null;
     const time = parseTime(r[c.time], r[c.date]);
     if (!time) continue;
-    fills.push({ id: r[c.id] || `${symbol}-${time}-${side}-${qty}-${price}`, orderId: r[c.order] || '', symbol, exchange, side, qty, price, time });
+    fills.push({ id: r[c.id] || `${symbol}-${time}-${side}-${qty}-${price}`, orderId: r[c.order] || '', symbol, exchange, side, qty, price, time, expiry });
   }
   if (!fills.length) throw new Error('No trades found in this file.');
   return fills;
@@ -58,6 +59,20 @@ function parseTime(execTime, date) {
 }
 
 // ---------- helpers ----------
+/** Futures (…26NOVFUT) and options (…26N1723400CE, …26NOV23400PE) by symbol shape. */
+export const isDerivative = (symbol) => /\d{2}[A-Z]{3}FUT$/.test(symbol) || /\d(CE|PE)$/.test(symbol);
+
+/**
+ * Console lists F&O and commodity trades with exchange "NSE"/"BSE"/"MCX" plus a
+ * segment column (EQ / FO / COM / CDS). Map to Kite's exchange codes.
+ */
+export function exchangeOf(exchange, seg, symbol) {
+  if (seg === 'COM' || exchange === 'MCX') return 'MCX';
+  if (seg === 'CDS' || exchange === 'CDS') return 'CDS';
+  if (seg === 'FO' || exchange === 'NFO' || exchange === 'BFO' || isDerivative(symbol)) return exchange === 'BSE' || exchange === 'BFO' ? 'BFO' : 'NFO';
+  return exchange === 'BSE' ? 'BSE' : 'NSE';
+}
+
 export const instKey = (exchange, symbol) => (exchange === 'NSE' || exchange === 'BSE' ? `EQ:${symbol}` : `${exchange}:${symbol}`);
 export function segmentOf(exchange, symbol) {
   if (exchange === 'MCX') return /\d(CE|PE)$/.test(symbol) ? 'OPT' : 'COM';
@@ -95,6 +110,8 @@ export function buildTrips(fills) {
     const finish = (c, status) => {
       const entryQty = qsum(c.entry); const exitQty = qsum(c.exit);
       const base = { key, symbol: c.entry[0].symbol, exchange: c.entry[0].exchange, segment: segmentOf(c.entry[0].exchange, c.entry[0].symbol), side: c.dir > 0 ? 'LONG' : 'SHORT', entryPrice: round(wavg(c.entry)), entryTime: c.entry[0].time };
+      const expiry = c.entry.find((f) => f.expiry)?.expiry || null;
+      base.expiry = expiry;
       if (status === 'CLOSED') return [{ ...base, status, qty: entryQty, exitPrice: round(wavg(c.exit)), exitTime: c.exit.at(-1).time, fillIds: [...c.entry, ...c.exit].map((f) => f.id) }];
       // Still open at the end of the file: split off any part already exited.
       const out = [];
@@ -134,7 +151,7 @@ const round = (v) => Math.round(v * 100) / 100;
  *  - newTrades: trips not in the journal yet (closed history, or open positions not logged)
  *  - dupes:     trips already in the journal
  */
-export function planImport(journal, fills) {
+export function planImport(journal, fills, today = istDay(new Date().toISOString())) {
   const known = new Set(journal.flatMap((t) => t.fillIds || []));
   const fresh = fills.filter((f) => !known.has(f.id));
   const alreadyImported = fills.length - fresh.length;
@@ -158,6 +175,13 @@ export function planImport(journal, fills) {
       const dup = journal.find((t) => t.status === 'CLOSED' && instKey(t.exchange, t.symbol) === trip.key && t.side === trip.side && t.qty === trip.qty
         && istDay(t.entryTime) === istDay(trip.entryTime) && t.exitTime && istDay(t.exitTime) === istDay(trip.exitTime));
       if (dup) { dupes.push(trip); continue; }
+    }
+    // F&O contract still "open" in the file but already past expiry: it expired.
+    // Options default to expiring worthless (editable); futures need the settlement price.
+    if (trip.status === 'OPEN' && trip.expiry && trip.expiry < today) {
+      const exitTime = new Date(`${trip.expiry}T15:30:00+05:30`).toISOString();
+      newTrades.push({ ...trip, status: 'CLOSED', expired: true, exitPrice: trip.segment === 'OPT' ? 0 : null, exitTime, horizon: guessHorizon(trip.entryTime, exitTime) });
+      continue;
     }
     newTrades.push({ ...trip, horizon: guessHorizon(trip.entryTime, trip.status === 'CLOSED' ? trip.exitTime : null) });
   }
