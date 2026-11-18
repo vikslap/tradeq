@@ -216,8 +216,8 @@ input[type=number]::-webkit-inner-spin-button { opacity: .3; }
 /* ---------- tables ---------- */
 .table-wrap { overflow-x: auto; margin: 0 -4px; }
 table.tbl { width: 100%; border-collapse: collapse; }
-.tbl th { text-align: left; font-size: 11px; font-weight: 600; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-.tbl td { padding: 11px 10px; border-bottom: 1px solid var(--row-line); white-space: nowrap; }
+.tbl th { text-align: left; font-size: 11px; font-weight: 600; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; padding: 8px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tbl td { padding: 10px 8px; border-bottom: 1px solid var(--row-line); white-space: nowrap; }
 .tbl tr:last-child td { border-bottom: none; }
 .tbl tbody tr { transition: background .12s; }
 .tbl tbody tr.click { cursor: pointer; }
@@ -407,3 +407,8 @@ form[data-horizon="LONGTERM"] span.lt-only { display: inline !important; }
 .chart-loading { height: 330px; }
 
 .need-date .input { border-color: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+
+.dropzone { display: grid; place-items: center; gap: 4px; padding: 34px 20px; border: 2px dashed var(--border-2); border-radius: 14px; background: var(--bg-2); cursor: pointer; color: var(--muted); text-align: center; transition: border-color .15s, background .15s; }
+.dropzone b { color: var(--text); }
+.dropzone:hover, .dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
+.tbl input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }

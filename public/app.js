@@ -2,6 +2,7 @@ import { computeGame, metrics, entryChecks, exitChecks, dayKey, tradeKey, weekSt
 import { computeStats, groupBy, rHistogram, investmentStats } from './stats.js';
 import { reconcile } from './sync.js';
 import { mountTradeChart, INTERVAL_LABEL } from './tradechart.js';
+import { parseTradebook, planImport } from './tradebook.js';
 
 // =====================================================================
 // Utilities
@@ -360,7 +361,7 @@ function pageJournal() {
   const usedSetups = [...new Set(S.state.trades.map((t) => t.setup).filter(Boolean))].sort();
   const f = S.f;
   return `<div class="page-h"><div><h1>Journal</h1><p>Every trade, its plan, and the XP it earned.</p></div>
-    <div class="row">${S.kite.connected ? `<button class="btn" data-action="kite-sync">🔗 Sync with Kite${S.sync?.issues ? ` <span class="pill red">${S.sync.issues}</span>` : ''}</button><button class="btn" data-action="kite-fills">⚡ Today's Kite fills</button>` : ''}<button class="btn primary" data-action="new-trade">＋ New trade</button></div></div>
+    <div class="row">${S.kite.connected ? `<button class="btn" data-action="kite-sync">🔗 Sync with Kite${S.sync?.issues ? ` <span class="pill red">${S.sync.issues}</span>` : ''}</button><button class="btn" data-action="kite-fills">⚡ Today's Kite fills</button>` : ''}<button class="btn" data-action="tradebook-import">⬆ Import tradebook</button><button class="btn primary" data-action="new-trade">＋ New trade</button></div></div>
     <div class="toolbar">
       <input class="input search" placeholder="Search symbol, setup, notes…" data-filter="q" value="${esc(f.q)}">
       <div class="seg">${[['all', 'All'], ['OPEN', 'Open'], ['CLOSED', 'Closed']].map(([v, l]) => `<label><input type="radio" name="fstatus" data-filter="status" value="${v}" ${f.status === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
@@ -397,7 +398,7 @@ function journalRows() {
       <td class="r num ${cls(m.r)}">${rfmt(m.r)}</td>
       <td>${t.setup ? `<span class="pill">${esc(t.setup)}</span>` : '<span class="faint">—</span>'}</td>
       <td>${plan}</td>
-      <td class="r">${xpPill(x) || '<span class="faint">0</span>'}</td>
+      <td class="r">${t.imported ? '<span class="pill" title="Imported from tradebook — no XP">imported</span>' : xpPill(x) || '<span class="faint">0</span>'}</td>
     </tr>`;
   }).join('');
 }
@@ -433,8 +434,8 @@ function pageInsights() {
     }
   }
   const mistakes = Object.entries(agg).sort((a, b) => (b[1].n > 0) - (a[1].n > 0) || a[1].net - b[1].net);
-  const clean = closed.filter(({ t }) => g.perTrade[t.id]?.clean);
-  const dirty = closed.filter(({ t }) => !g.perTrade[t.id]?.clean);
+  const clean = closed.filter(({ t }) => !t.imported && g.perTrade[t.id]?.clean);
+  const dirty = closed.filter(({ t }) => !t.imported && !g.perTrade[t.id]?.clean);
   const grp = (list) => ({ n: list.length, net: sum(list.map((x) => x.m.net)), wr: list.length ? list.filter((x) => x.m.net > 0).length / list.length : null, r: (() => { const rs = list.map((x) => x.m.r).filter((v) => v != null); return rs.length ? sum(rs) / rs.length : null; })() });
   const C = grp(clean); const D = grp(dirty);
 
@@ -632,7 +633,7 @@ function pageSettings() {
       ${s.syncIgnore.map((k) => `<div class="mistake"><span class="mono">${esc(k.replace(/^EQ:/, ''))}</span><button class="btn sm ghost" data-action="sync-unignore" data-key="${esc(k)}">Stop ignoring</button></div>`).join('')}</section>` : ''}
     <section class="card"><header class="card-h"><h3>Your data</h3></header>
       <p class="muted" style="margin-top:0">Everything lives in <code>data/journal.json</code> on this computer (a backup copy is made on every start). Export regularly.</p>
-      <div class="row wrap"><a class="btn" href="/api/export" download>⬇ Export JSON</a><label class="btn">⬆ Import JSON<input type="file" accept="application/json" id="import-file" hidden></label></div>
+      <div class="row wrap"><a class="btn" href="/api/export" download>⬇ Export JSON</a><label class="btn">⬆ Import JSON<input type="file" accept="application/json" id="import-file" hidden></label><button class="btn" data-action="tradebook-import">⬆ Import Zerodha tradebook</button></div>
       <p class="faint" style="font-size:12px">Import replaces the whole journal.</p>
     </section>
   </div>`;
@@ -1064,7 +1065,8 @@ function renderDrawer() {
     ${t.lessons ? `<div class="sec"><div class="label">Lesson</div><div class="prose" style="margin-top:6px">${esc(t.lessons)}</div></div>` : ''}
     ${t.screenshotUrl ? `<div class="sec"><a class="link" href="${esc(t.screenshotUrl)}" target="_blank" rel="noopener">📈 Open chart ↗</a></div>` : ''}
     ${t.stopHistory?.length ? `<div class="sec"><div class="label">Stop moves</div>${t.stopHistory.map((h) => `<div class="stat-line"><span class="muted">${fmtDT(h.at)}</span><b>${price(h.from)} → ${price(h.to)}</b></div>`).join('')}</div>` : ''}
-    <div class="sec"><div class="label">XP breakdown</div><div class="checklist" style="margin-top:8px">${checkList(pt.entry)}${checkList(pt.exit)}${(pt.penalties || []).map((c) => `<div class="check bad"><span class="ic">✕</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}</div></div>
+    ${t.imported ? '<div class="sec"><div class="note">Imported from your Zerodha tradebook. It counts in P&L, stats and charts, but doesn\'t earn or lose XP — XP is for journaling as you trade. Add notes freely.</div></div>' : ''}
+    <div class="sec ${t.imported ? 'hidden' : ''}"><div class="label">XP breakdown</div><div class="checklist" style="margin-top:8px">${checkList(pt.entry)}${checkList(pt.exit)}${(pt.penalties || []).map((c) => `<div class="check bad"><span class="ic">✕</span><span class="lb">${esc(c.label)}</span>${xpPill(c.xp)}</div>`).join('')}</div></div>
     <div class="sec row wrap">
       ${t.status === 'OPEN' ? `<button class="btn green" data-action="close-trade" data-id="${t.id}">Close trade</button>` : `<button class="btn" data-action="reopen-trade" data-id="${t.id}">Reopen</button>`}
       <button class="btn" data-action="edit-trade" data-id="${t.id}">Edit</button>
@@ -1100,6 +1102,82 @@ function openThesisReview(t) {
     } catch (err) { $('#thesis-err').textContent = err.message; }
   });
   setTimeout(() => form.note.focus(), 30);
+}
+
+// ---------- Tradebook import ----------
+function openTradebookImport() {
+  const el = openModal(`<div class="modal" style="width:min(1100px,100%)"><div class="modal-h"><h2>⬆ Import Zerodha tradebook</h2><button class="btn ghost sm" data-action="close-modal">✕</button></div>
+    <div class="modal-b" id="tb-body">
+      <ol class="prose" style="margin:0 0 14px;padding-left:18px">
+        <li>Open <a class="link" href="https://console.zerodha.com/reports/tradebook" target="_blank" rel="noopener">Console → Reports → Tradebook</a>.</li>
+        <li>Pick the segment (Equity, F&O or Commodity) and a date range — up to a year at a time — and download as <b>CSV</b>.</li>
+        <li>Drop one or more files here. Nothing is saved until you review and confirm.</li></ol>
+      <label class="dropzone" id="tb-drop"><input type="file" accept=".csv,text/csv" multiple id="tb-file" hidden><b>Choose CSV files</b> or drag them here</label>
+      <div class="err" id="tb-err" style="margin-top:8px"></div>
+    </div></div>`, { dismissable: true });
+  const input = $('#tb-file', el); const drop = $('#tb-drop', el);
+  const handle = async (files) => {
+    try {
+      const fills = [];
+      for (const f of files) fills.push(...parseTradebook(await f.text()));
+      S._tb = planImport(S.state.trades, fills);
+      renderImportPlan();
+    } catch (e) { $('#tb-err').textContent = e.message; }
+  };
+  input.addEventListener('change', () => handle([...input.files]));
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); handle([...e.dataTransfer.files]); });
+}
+
+function renderImportPlan() {
+  const P = S._tb; const body = $('#tb-body'); if (!body) return;
+  const pnl = (r) => (r.status === 'CLOSED' ? (r.exitPrice - r.entryPrice) * r.qty * (r.side === 'SHORT' ? -1 : 1) : null);
+  const typeSel = (i, v) => `<select class="input" style="padding:5px 8px;width:auto" data-tb-type="${i}">${HORIZONS.map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const nothing = !P.dateFixes.length && !P.closes.length && !P.newTrades.length;
+  body.innerHTML = `
+    <div class="row wrap" style="gap:8px;margin-bottom:14px">
+      <span class="pill">${P.fills} fills · ${fmtDate(P.from)} → ${fmtDate(P.to)}</span>
+      ${P.alreadyImported ? `<span class="pill">${P.alreadyImported} already imported</span>` : ''}
+      ${P.dupes.length ? `<span class="pill">${P.dupes.length} already in journal</span>` : ''}
+    </div>
+    ${nothing ? '<div class="empty-sm">Nothing new to import from this file — your journal already has all of it.</div>' : ''}
+    ${P.dateFixes.length ? `<section style="margin-bottom:18px"><h3 style="margin-bottom:6px">📅 Fix entry dates on open trades <span class="faint">(${P.dateFixes.length})</span></h3>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th><input type="checkbox" data-tb-all="fix" checked></th><th>Instrument</th><th>In journal</th><th>From tradebook</th><th></th></tr></thead><tbody>
+      ${P.dateFixes.map((f, i) => `<tr><td><input type="checkbox" data-tb="fix" value="${i}" checked></td><td><span class="sym">${esc(f.trade.symbol)}</span> ${horizonPill(f.trade)}</td>
+        <td class="num">${fmtDate(f.trade.entryTime)} @ ${price(f.trade.entryPrice)}</td><td class="num"><b>${fmtDT(f.entryTime)} @ ${price(f.entryPrice)}</b></td>
+        <td>${f.qtyMatches ? '' : `<span class="pill gold">tradebook qty ${nf0.format(f.qty)} vs ${nf0.format(f.trade.qty)}</span>`}</td></tr>`).join('')}</tbody></table></div></section>` : ''}
+    ${P.closes.length ? `<section style="margin-bottom:18px"><h3 style="margin-bottom:6px">✅ Close trades you've sold <span class="faint">(${P.closes.length})</span></h3>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th><input type="checkbox" data-tb-all="close" checked></th><th>Instrument</th><th class="r">Qty</th><th>Sold</th><th class="r">P&L</th></tr></thead><tbody>
+      ${P.closes.map((c, i) => { const n = (c.exitPrice - c.trade.entryPrice) * c.trade.qty; return `<tr><td><input type="checkbox" data-tb="close" value="${i}" checked></td><td><span class="sym">${esc(c.trade.symbol)}</span> ${horizonPill(c.trade)}</td><td class="r num">${nf0.format(c.trade.qty)}</td><td class="num">${fmtDT(c.exitTime)} @ ${price(c.exitPrice)}</td><td class="r num ${cls(n)}">${money(n, { sign: true, dp: 0 })}</td></tr>`; }).join('')}</tbody></table></div>
+      <p class="faint" style="font-size:12px;margin:6px 0 0">These are your journaled trades — open each afterwards to add an exit reason and lesson — until you do, they cost a little XP.</p></section>` : ''}
+    ${P.newTrades.length ? `<section><div class="row" style="justify-content:space-between;margin-bottom:6px"><h3>🗂️ Trades not in your journal <span class="faint">(${P.newTrades.length})</span></h3><span class="faint" style="font-size:12px">Imported trades count in P&L and stats, but never earn or lose XP.</span></div>
+      <div class="table-wrap" style="max-height:44vh;overflow:auto"><table class="tbl"><thead><tr><th><input type="checkbox" data-tb-all="new" checked></th><th>Instrument</th><th>Side</th><th class="r">Qty</th><th>Entry</th><th>Exit</th><th class="r">Gross P&L</th><th>Type</th></tr></thead><tbody>
+      ${P.newTrades.map((r, i) => { const n = pnl(r); return `<tr><td><input type="checkbox" data-tb="new" value="${i}" checked></td><td><span class="sym">${esc(r.symbol)}</span><span class="exch">${r.exchange}</span>${r.partial ? ' <span class="pill gold">partial exit</span>' : ''}</td>
+        <td><span class="side ${r.side}">${r.side}</span></td><td class="r num">${nf0.format(r.qty)}</td><td class="num">${fmtDate(r.entryTime)} @ ${price(r.entryPrice)}</td>
+        <td class="num">${r.status === 'CLOSED' ? `${fmtDate(r.exitTime)} @ ${price(r.exitPrice)}` : '<span class="pill violet">still open</span>'}</td>
+        <td class="r num ${cls(n)}">${n == null ? '—' : money(n, { sign: true, dp: 0 })}</td><td>${typeSel(i, r.horizon)}</td></tr>`; }).join('')}</tbody></table></div></section>` : ''}
+    ${P.unmatched.length ? `<p class="faint" style="font-size:12px;margin-top:12px">Skipped ${P.unmatched.length} sale${P.unmatched.length > 1 ? 's' : ''} of shares bought before this file's dates (${P.unmatched.map((u) => esc(u.symbol)).slice(0, 6).join(', ')}${P.unmatched.length > 6 ? '…' : ''}). Import an older tradebook to pair them.</p>` : ''}
+    <div class="err" id="tb-err"></div>
+    ${nothing ? '' : '<div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn ghost" data-action="close-modal">Cancel</button><button class="btn primary" data-action="tradebook-apply">Import selected</button></div>'}`;
+}
+
+async function applyImport() {
+  const P = S._tb;
+  const picked = (k) => $$(`[data-tb="${k}"]:checked`).map((x) => +x.value);
+  const types = Object.fromEntries($$('[data-tb-type]').map((x) => [x.dataset.tbType, x.value]));
+  const payload = {
+    updates: picked('fix').map((i) => ({ id: P.dateFixes[i].trade.id, entryTime: P.dateFixes[i].entryTime, entryPrice: P.dateFixes[i].entryPrice, fillIds: P.dateFixes[i].fillIds })),
+    closes: picked('close').map((i) => ({ id: P.closes[i].trade.id, exitPrice: P.closes[i].exitPrice, exitTime: P.closes[i].exitTime, fillIds: P.closes[i].fillIds })),
+    create: picked('new').map((i) => { const r = P.newTrades[i]; return { symbol: r.symbol, exchange: r.exchange, segment: r.segment, side: r.side, qty: r.qty, entryPrice: r.entryPrice, entryTime: r.entryTime, status: r.status, exitPrice: r.exitPrice, exitTime: r.exitTime, horizon: types[i] || r.horizon, fillIds: r.fillIds }; }),
+  };
+  const btn = $('[data-action="tradebook-apply"]'); if (btn) btn.disabled = true;
+  try {
+    const res = await api('/api/import/tradebook', { method: 'POST', body: payload });
+    closeModal(); S._tb = null;
+    await reload({ celebrate: true });
+    toast(`<div class="t-h">⬆ Tradebook imported</div><div class="muted" style="font-size:12px;margin-top:4px">${res.created} trades added · ${res.updated} entry dates fixed · ${res.closed} closed</div>`);
+  } catch (e) { $('#tb-err').textContent = e.message; if (btn) btn.disabled = false; }
 }
 
 async function openSync() {
@@ -1158,7 +1236,7 @@ function celebrateDiff(prev, next) {
   const fresh = next.events.filter((e) => !before.has(e.key + e.xp));
   const delta = next.xp - prev.xp;
   if (fresh.length || delta) {
-    toast(`<div class="t-h"><span class="t-xp ${delta < 0 ? 'neg' : 'gold'}">${delta > 0 ? '+' : ''}${delta} XP</span><span>${delta >= 0 ? 'Nice process.' : 'Rules broken — XP lost.'}</span></div>
+    toast(`<div class="t-h"><span class="t-xp ${delta < 0 ? 'neg' : 'gold'}">${delta > 0 ? '+' : ''}${delta} XP</span><span>${delta > 0 ? 'Nice process.' : delta < 0 ? 'Rules broken — XP lost.' : 'XP updated.'}</span></div>
       ${fresh.length ? `<ul>${fresh.slice(0, 7).map((e) => `<li><span>${esc(e.label)}</span>${xpPill(e.xp)}</li>`).join('')}</ul>` : ''}`);
   }
   const had = new Set(prev.badges.filter((b) => b.earned).map((b) => b.id));
@@ -1263,6 +1341,8 @@ const actions = {
   'size-from-risk': (el) => { const f = el.closest('form'); f.qty.value = el.dataset.qty; renderTradePreview(f); },
   'kite-logout': async () => { await api('/api/kite/logout', { method: 'POST' }); await loadKite(); render(); toast('Disconnected from Kite'); },
   'kite-fills': () => openFills(),
+  'tradebook-import': () => openTradebookImport(),
+  'tradebook-apply': () => applyImport(),
   'kite-sync': () => openSync(),
   'sync-log': (el) => {
     const r = S.sync.rows[+el.dataset.i]; const diff = r.kiteQty - r.journalQty; closeModal();
@@ -1311,6 +1391,7 @@ function bindGlobal() {
   // Journal filters
   document.addEventListener('input', (e) => {
     if (e.target.hasAttribute?.('data-action-view')) { S.view = e.target.value; render(); return; }
+    if (e.target.dataset?.tbAll) { $$(`[data-tb="${e.target.dataset.tbAll}"]`).forEach((x) => { x.checked = e.target.checked; }); return; }
     const iv = e.target.dataset?.actionIv; const emaN = e.target.dataset?.actionEma;
     if (iv || emaN) {
       if (emaN) { const n = +emaN; S.emas = e.target.checked ? [...new Set([...S.emas, n])].sort((a, b) => a - b) : S.emas.filter((x) => x !== n); try { localStorage.setItem('tq-emas', S.emas.join(',')); } catch { /* ignore */ } }

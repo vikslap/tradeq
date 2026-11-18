@@ -61,6 +61,7 @@ on('DELETE', '/api/trades/:id/thesis-reviews/:rid', (req, p) => store.deleteThes
 on('POST', '/api/reviews', async (req) => store.upsertReview(await readJson(req)));
 on('DELETE', '/api/reviews/:id', (req, p) => { store.deleteReview(p.id); return { ok: true }; });
 on('PUT', '/api/settings', async (req) => store.updateSettings(await readJson(req)));
+on('POST', '/api/import/tradebook', async (req) => store.importTradebook(await readJson(req, 50 * 1024 * 1024)));
 on('POST', '/api/import', async (req) => store.importState(await readJson(req, 50 * 1024 * 1024)));
 on('GET', '/api/export', (req, p, res) => {
   const day = new Date().toISOString().slice(0, 10);

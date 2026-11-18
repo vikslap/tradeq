@@ -53,6 +53,22 @@ Without Kite, everything works in manual mode.
 
 ![Insights](docs/insights.png)
 
+## Importing your Zerodha tradebook
+
+Kite's live data has your holdings and today's trades, but not your history or buy dates. Those live in **Console**. To bring them in:
+
+1. In [Console → Reports → Tradebook](https://console.zerodha.com/reports/tradebook), pick a segment and a date range (up to a year at a time) and download it as **CSV**.
+2. In TradeQuest, go to **Journal → ⬆ Import tradebook** (or Settings) and drop in one or more files.
+3. Review what it found, untick anything you don't want, and click **Import selected**.
+
+The import pairs buys and sells into complete trades. Adding to a position counts as one trade, which closes when the position is flat again. A partial exit at the end of the file is split into a closed part and an open remainder. Same-day short trades in cash equity and futures position flips are both handled. Then it shows you:
+- **Fix entry dates**: open journal trades (e.g. logged via Kite sync) get their real buy date and average price.
+- **Close trades you've sold**: journal trades the tradebook shows were sold, closed at the actual sell price.
+- **Trades not in your journal**: past trades you never logged, with a type picked from holding period that you can change.
+- **Skipped**: trades already in the journal, fills imported before (safe to re-import), and sales of shares bought before the file's dates.
+
+Imported trades count in your P&L, equity curve and Insights, but **don't earn or lose XP**. XP is for journaling as you trade.
+
 ## Trade types and long-term investments
 
 Every entry has a **type**: Intraday, Swing, Positional or Long-term. Trades logged before types existed were tagged automatically: same-day trades as Intraday, up to 20 days as Swing, longer as Positional. You can change any of them.

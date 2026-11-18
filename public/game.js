@@ -258,9 +258,13 @@ export const BADGES = [
 // Main computation
 // ---------------------------------------------------------------------------
 export function computeGame(state) {
-  const { trades = [], reviews = [], settings = {} } = state;
+  const { reviews = [], settings = {} } = state;
+  // Trades imported from a tradebook count in P&L and stats but never earn or lose XP.
+  const all = state.trades || [];
+  const trades = all.filter((t) => !t.imported);
   const events = [];
   const perTrade = {};
+  for (const t of all) if (t.imported) perTrade[t.id] = { entry: [], exit: [], penalties: [], mistakes: [], imported: true };
 
   // Entry order within each day (for the daily-limit rule).
   const dayIdx = {}; const dayCount = {};
@@ -411,7 +415,7 @@ export function computeGame(state) {
     discipline: total ? Math.round((pass / total) * 100) : null,
     disciplineSample: recent.length,
     streak: { current: c.discStreak, best: c.bestDiscStreak },
-    quests: computeQuests(state),
+    quests: computeQuests({ ...state, trades }),
   };
 }
 
