@@ -84,6 +84,16 @@ export const actions = {
     if (!(await confirmBox('Remove this exit?', 'The quantity goes back to open. Everything else on the trade stays.', 'Remove'))) return;
     try { await api(`/api/trades/${t.id}`, { method: 'PUT', body: { exits: (t.exits || []).filter((e) => e.id !== el.dataset.eid) } }); await reload({ celebrate: true }); } catch (e) { toast(esc(e.message), 'err'); }
   },
+  'delete-imported': async () => {
+    const n = S.state.trades.filter((t) => t.imported).length;
+    if (!(await confirmBox(`Delete ${n} imported trades?`, 'Every trade that came from a Zerodha tradebook import is removed. Trades you logged yourself stay. This can\'t be undone — export first if unsure.', 'Delete'))) return;
+    try { const r = await api('/api/trades/delete-imported', { method: 'POST' }); await reload(); toast(`🗑 ${r.removed} imported trades deleted`); } catch (e) { toast(esc(e.message), 'err'); }
+  },
+  'reset-journal': async () => {
+    if (!(await confirmBox('Reset the whole journal?', `All ${S.state.trades.length} trades, weekly reviews and links are deleted. Settings and Practice stay. This can\'t be undone — export first if unsure.`, 'Reset'))) return;
+    if (!(await confirmBox('Really start from zero?', 'Last check: your journal will be empty.', 'Yes, reset'))) return;
+    try { const r = await api('/api/journal/reset', { method: 'POST' }); await reload(); toast(`Journal reset · ${r.removed} trades removed`); } catch (e) { toast(esc(e.message), 'err'); }
+  },
   'app-logout': async () => { await fetch('/api/auth/logout', { method: 'POST' }); location.reload(); },
   'edit-exit': (el) => { const t = findTrade(el.dataset.id); openCloseForm(t, { exitPrice: t.exitPrice, exitTime: t.exitTime, exitSource: t.exitSource, edit: true }); },
   'reopen-trade': async (el) => {

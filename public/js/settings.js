@@ -52,6 +52,11 @@ export function pageSettings() {
       <div class="row wrap"><a class="btn" href="/api/export" download>⬇ Export JSON</a><label class="btn">⬆ Import JSON<input type="file" accept="application/json" id="import-file" hidden></label><button class="btn" data-action="tradebook-import">⬆ Import Zerodha tradebook</button>${hosted ? '<button class="btn ghost" data-action="app-logout">Log out of TradeQuest</button>' : ''}</div>
       <p class="faint" style="font-size:12px">Import replaces the whole journal.</p>
     </section>
+    <section class="card danger-zone"><header class="card-h"><h3>Start over</h3></header>
+      <p class="muted" style="margin-top:0">Export first if you might want any of it back.</p>
+      <div class="mistake"><div><b>Delete imported trades</b><div class="faint" style="font-size:12px">${S.state.trades.filter((t) => t.imported).length} trades from tradebook imports. Trades you logged yourself stay.</div></div><button class="btn sm danger" data-action="delete-imported" ${S.state.trades.some((t) => t.imported) ? '' : 'disabled'}>Delete</button></div>
+      <div class="mistake"><div><b>Reset the journal</b><div class="faint" style="font-size:12px">Deletes all ${S.state.trades.length} trades, weekly reviews and links. Keeps your settings and Practice.</div></div><button class="btn sm danger" data-action="reset-journal" ${S.state.trades.length ? '' : 'disabled'}>Reset</button></div>
+    </section>
   </div>`;
 }
 

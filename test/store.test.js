@@ -106,3 +106,14 @@ test('legacy close (status + exitPrice) still works and edits a single exit', ()
   const u = store.updateTrade(t.id, { status: 'CLOSED', exitPrice: 412, exitTime: '2026-11-03T05:00:00.000Z' });
   assert.equal(u.exits.length, 1); assert.equal(u.exitPrice, 412);
 });
+
+test('delete imported trades keeps manual ones; reset empties the journal', () => {
+  const manual = store.createTrade({ symbol: 'KEEP', exchange: 'NSE', side: 'LONG', qty: 1, entryPrice: 100, entryTime: '2026-03-02T04:00:00Z' });
+  store.importTradebook({ create: [{ symbol: 'IMP', exchange: 'NSE', side: 'LONG', qty: 1, entryPrice: 50, entryTime: '2026-03-02T04:00:00Z', fillIds: ['zz1'], exits: [] }] });
+  assert.ok(store.getState().trades.some((t) => t.imported));
+  store.deleteImported();
+  assert.ok(!store.getState().trades.some((t) => t.imported));
+  assert.ok(store.getState().trades.some((t) => t.id === manual.id));
+  store.resetJournal();
+  assert.equal(store.getState().trades.length, 0);
+});
