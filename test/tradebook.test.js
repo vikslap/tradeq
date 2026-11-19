@@ -127,3 +127,11 @@ test('re-import repairs a short leg the old importer dropped (your 23300 CE case
   assert.equal(p.repairs[0].replaces[0].id, 'bad');
   assert.deepEqual(p.repairs[0].trips.map((t) => [t.side, t.status, t.qty, t.entryPrice, t.exitPrice]), [['SHORT', 'CLOSED', 65, 126, 1918.3]]);
 });
+
+test('renamed company: old-symbol buy pairs with new-symbol sell', () => {
+  const text = csv(row('ACRYSIL', '2023-03-02', 'buy', 10, 500, 1), row('CARYSIL', '2024-03-09', 'sell', 10, 700, 2));
+  const before = buildTrips(parseTradebook(text)).trips;
+  assert.ok(before.some((t) => t.symbol === 'ACRYSIL' && t.status === 'OPEN'));
+  const { trips } = buildTrips(parseTradebook(text, [{ from: 'ACRYSIL', to: 'CARYSIL' }]));
+  assert.deepEqual(trips.map((t) => [t.symbol, t.status, t.qty]), [['CARYSIL', 'CLOSED', 10]]);
+});

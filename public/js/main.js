@@ -84,6 +84,10 @@ export const actions = {
     if (!(await confirmBox('Remove this exit?', 'The quantity goes back to open. Everything else on the trade stays.', 'Remove'))) return;
     try { await api(`/api/trades/${t.id}`, { method: 'PUT', body: { exits: (t.exits || []).filter((e) => e.id !== el.dataset.eid) } }); await reload({ celebrate: true }); } catch (e) { toast(esc(e.message), 'err'); }
   },
+  'rename-remove': async (el) => {
+    const list = (S.state.settings.symbolRenames || []).filter((r) => r.from !== el.dataset.from);
+    try { await api('/api/settings', { method: 'PUT', body: { symbolRenames: list } }); await reload(); } catch (e) { toast(esc(e.message), 'err'); }
+  },
   'delete-imported': async () => {
     const n = S.state.trades.filter((t) => t.imported).length;
     if (!(await confirmBox(`Delete ${n} imported trades?`, 'Every trade that came from a Zerodha tradebook import is removed. Trades you logged yourself stay. This can\'t be undone — export first if unsure.', 'Delete'))) return;

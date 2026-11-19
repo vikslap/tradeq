@@ -47,6 +47,16 @@ export function pageSettings() {
     ${(s.syncIgnore || []).length ? `<section class="card"><header class="card-h"><h3>Ignored in Kite sync</h3></header>
       <p class="muted" style="margin-top:0">These Kite holdings won't be flagged as missing from your journal.</p>
       ${s.syncIgnore.map((k) => `<div class="mistake"><span class="mono">${esc(k.replace(/^EQ:/, ''))}</span><button class="btn sm ghost" data-action="sync-unignore" data-key="${esc(k)}">Stop ignoring</button></div>`).join('')}</section>` : ''}
+    <section class="card"><header class="card-h"><h3>Renamed stocks</h3><span class="sub">e.g. ACRYSIL → CARYSIL</span></header>
+      <p class="muted" style="margin-top:0">When a company changes its NSE/BSE symbol, rename it here. Your trades switch to the new symbol (so live prices work), and future tradebook imports treat the old symbol as the new one, so old buys pair up with new sells.</p>
+      <form class="row wrap" id="rename-form" autocomplete="off" style="gap:8px">
+        <input class="input" name="from" placeholder="Old symbol" style="flex:1 1 130px;text-transform:uppercase" required>
+        <span class="muted">→</span>
+        <input class="input" name="to" placeholder="New symbol" style="flex:1 1 130px;text-transform:uppercase" required>
+        <button class="btn primary" type="submit">Rename</button>
+      </form>
+      ${(s.symbolRenames || []).length ? `<div style="margin-top:10px">${s.symbolRenames.map((r) => `<div class="mistake"><span class="mono">${esc(r.from)} → ${esc(r.to)}</span><button class="btn sm ghost" data-action="rename-remove" data-from="${esc(r.from)}" title="Stop mapping on import (trades keep their new symbol)">Remove</button></div>`).join('')}</div>` : ''}
+    </section>
     <section class="card"><header class="card-h"><h3>Your data</h3></header>
       <p class="muted" style="margin-top:0">${hosted ? 'Your journal lives in your own Cloudflare D1 database (with 7–30 days of point-in-time recovery). Export now and then anyway.' : 'Everything lives in <code>data/journal.json</code> on this computer (a backup copy is made on every start). Export regularly.'}</p>
       <div class="row wrap"><a class="btn" href="/api/export" download>⬇ Export JSON</a><label class="btn">⬆ Import JSON<input type="file" accept="application/json" id="import-file" hidden></label><button class="btn" data-action="tradebook-import">⬆ Import Zerodha tradebook</button>${hosted ? '<button class="btn ghost" data-action="app-logout">Log out of TradeQuest</button>' : ''}</div>
@@ -62,6 +72,15 @@ export function pageSettings() {
 
 
 export function bindSettings() {
+  $('#rename-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target; const from = f.from.value.trim().toUpperCase(); const to = f.to.value.trim().toUpperCase();
+    try {
+      const r = await api('/api/symbols/rename', { method: 'POST', body: { from, to } });
+      await reload();
+      toast(`✏️ ${esc(r.rename.from)} → ${esc(r.rename.to)} · ${r.renamed} trade${r.renamed === 1 ? '' : 's'} renamed`);
+    } catch (err) { toast(esc(err.message), 'err'); }
+  });
   $('#import-file')?.addEventListener('change', async (e) => {
     const file = e.target.files[0]; if (!file) return;
     const ok = await confirmBox('Replace your journal?', `Importing <b>${esc(file.name)}</b> will replace all current trades and reviews. Export first if unsure.`, 'Replace journal');

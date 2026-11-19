@@ -117,3 +117,12 @@ test('delete imported trades keeps manual ones; reset empties the journal', () =
   store.resetJournal();
   assert.equal(store.getState().trades.length, 0);
 });
+
+test('renameSymbol renames cash-equity trades and remembers the mapping', () => {
+  const t = store.createTrade({ symbol: 'ACRYSIL', exchange: 'NSE', side: 'LONG', qty: 5, entryPrice: 500, entryTime: '2023-03-02T04:00:00Z' });
+  const r = store.renameSymbol({ from: 'acrysil', to: 'carysil' });
+  assert.equal(r.renamed, 1);
+  assert.equal(store.getState().trades.find((x) => x.id === t.id).symbol, 'CARYSIL');
+  assert.deepEqual(store.getState().settings.symbolRenames, [{ from: 'ACRYSIL', to: 'CARYSIL' }]);
+  assert.throws(() => store.renameSymbol({ from: 'X', to: 'X' }));
+});

@@ -21,7 +21,7 @@ export function openTradebookImport() {
   const handle = async (files) => {
     try {
       const fills = [];
-      for (const f of files) fills.push(...parseTradebook(await f.text()));
+      for (const f of files) fills.push(...parseTradebook(await f.text(), S.state.settings.symbolRenames || []));
       S._tb = planImport(S.state.trades, fills);
       renderImportPlan();
     } catch (e) { $('#tb-err').textContent = e.message; }

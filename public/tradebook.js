@@ -17,7 +17,9 @@ function splitCsvLine(line) {
 const norm = (h) => h.toLowerCase().replace(/^﻿/, '').trim().replace(/[\s.]+/g, '_');
 
 /** Parse tradebook text into fills. Throws with a friendly message if the file isn't a tradebook. */
-export function parseTradebook(text) {
+/** renames: [{ from, to }] — old company symbols mapped to their current ones. */
+export function parseTradebook(text, renames = []) {
+  const renamed = Object.fromEntries(renames.map((r) => [r.from, r.to]));
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   const hi = lines.findIndex((l) => { const h = splitCsvLine(l).map(norm); return h.includes('symbol') && h.includes('trade_type'); });
   if (hi < 0) throw new Error("This doesn't look like a Zerodha tradebook CSV (no 'symbol' / 'trade_type' columns). Download it from Console → Reports → Tradebook as CSV.");
@@ -31,7 +33,8 @@ export function parseTradebook(text) {
   const fills = [];
   for (const line of lines.slice(hi + 1)) {
     const r = splitCsvLine(line);
-    const symbol = (r[c.symbol] || '').toUpperCase().replace(/\s+/g, '');
+    const raw = (r[c.symbol] || '').toUpperCase().replace(/\s+/g, '');
+    const symbol = renamed[raw] || raw;
     const side = (r[c.type] || '').toUpperCase();
     const qty = Math.abs(Number(r[c.qty]));
     const price = Number(r[c.price]);
