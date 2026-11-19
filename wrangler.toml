@@ -2,6 +2,8 @@
 name = "tradequest"
 main = "worker/index.js"
 compatibility_date = "2026-11-01"
+workers_dev = true      # https://tradequest.<subdomain>.workers.dev
+preview_urls = false    # no extra per-version URLs
 
 # The web app (public/) is served as static assets; only /api/* runs the Worker.
 [assets]
