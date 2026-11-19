@@ -224,7 +224,10 @@ export async function boot() {
     await Promise.all([loadKite(), (async () => { S.state = await api('/api/state'); })()]);
   } catch (e) {
     if (e.code === 'AUTH') return; // the login screen is showing
-    $('#main').innerHTML = `<div class="card empty"><div class="big">⚠️</div><h2>Can't reach the TradeQuest server</h2><p>${esc(e.message)}. Is <code>npm start</code> running?</p></div>`;
+    const setup = e.code === 'NO_PASSWORD';
+    $('#main').innerHTML = setup
+      ? `<div class="card empty"><div class="big">🔑</div><h2>One step left: set your password</h2><p>In Cloudflare, open the <b>tradequest</b> Worker → <b>Settings → Variables and Secrets → Add</b>. Choose type <b>Secret</b>, name <code>APP_PASSWORD</code>, and a password of 12+ characters. Save, then reload this page.</p></div>`
+      : `<div class="card empty"><div class="big">⚠️</div><h2>Can't reach the TradeQuest server</h2><p>${esc(e.message)}. Is <code>npm start</code> running?</p></div>`;
     return;
   }
   S.game = computeGame(S.state); S.stats = computeStats(S.state.trades.filter(isTrading), S.state.groups);
