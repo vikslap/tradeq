@@ -1,3 +1,4 @@
+import { fyOf } from '../ledger.js';
 import { setClientSearch } from './kiteinst.js';
 import { computeGame, tradeKey, HORIZON_LABEL, isLT, isTrading } from '../game.js';
 import { computeStats } from '../stats.js';
@@ -105,6 +106,22 @@ export async function loadKite() {
 export const VIEWS = [['TRADING', 'Trading'], ['LONGTERM', 'Long-term'], ['ALL', 'All']];
 
 export const viewTrades = () => S.state.trades.filter((t) => (S.view === 'ALL' ? true : S.view === 'LONGTERM' ? isLT(t) : isTrading(t)));
+
+// Insights → one financial year at a time (by exit date), or all time.
+const istDate = (iso) => new Date(new Date(iso).getTime() + 330 * 60000).toISOString().slice(0, 10);
+export const fyLabel = (iso) => fyOf(istDate(iso));
+export const yearTrades = (trades) => (!S.insYear || S.insYear === 'all' ? trades : trades.filter((t) => t.status === 'CLOSED' && t.exitTime && fyLabel(t.exitTime) === S.insYear));
+export function insightYears() {
+  const ys = new Set();
+  for (const t of S.state.trades) if (t.exitTime) ys.add(fyLabel(t.exitTime));
+  for (const r of S.state.ledger || []) ys.add(fyOf(r.date));
+  return [...ys].sort().reverse();
+}
+export const yearSelect = () => {
+  const ys = insightYears();
+  if (!ys.length) return '';
+  return `<select class="input sm-select" name="ins-year" title="Show one financial year">${['all', ...ys].map((y) => `<option value="${y}" ${(S.insYear || 'all') === y ? 'selected' : ''}>${y === 'all' ? 'All time' : y.replace('FY', 'FY ')}</option>`).join('')}</select>`;
+};
 
 export const viewSeg = () => `<div class="seg sm-seg">${VIEWS.map(([v, l]) => `<label><input type="radio" name="view" data-action-view value="${v}" ${S.view === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>`;
 

@@ -521,3 +521,6 @@ details.charges .stat-line { padding: 3px 0; font-size: 12px; }
 .login-card { width: min(360px, 100%); background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 26px 22px; box-shadow: var(--shadow); }
 
 @media (max-width: 760px) { .kpis.k4 { grid-template-columns: 1fr 1fr; } }
+
+select.sm-select { width: auto; padding: 7px 30px 7px 12px; font-size: 13px; font-weight: 600; }
+tr.sel-row td { background: var(--accent-soft); }

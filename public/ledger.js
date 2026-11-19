@@ -73,6 +73,12 @@ export function fyOf(date) {
   return `FY${String(s % 100).padStart(2, '0')}-${String((s + 1) % 100).padStart(2, '0')}`;
 }
 
+/** "FY25-26" → ['2025-04-01', '2026-03-31'] */
+export function fyRange(fy) {
+  const s = 2000 + Number(fy.slice(2, 4));
+  return [`${s}-04-01`, `${s + 1}-03-31`];
+}
+
 /** Ledger entries in posting order (date, then the order they appeared). */
 export const sortLedger = (rows) => [...rows].sort((a, b) => a.date.localeCompare(b.date) || (a.seq ?? 0) - (b.seq ?? 0));
 

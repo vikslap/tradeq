@@ -196,6 +196,7 @@ export function bindGlobal() {
   document.addEventListener('input', (e) => {
     if (e.target.hasAttribute?.('data-action-view')) { S.view = e.target.value; render(); return; }
     if (e.target.name === 'wealth-scope') { setWealthScope(e.target.value); render(); return; }
+    if (e.target.name === 'ins-year') { S.insYear = e.target.value; render(); return; }
     if (e.target.dataset?.sel) {
       const id = e.target.dataset.sel; e.target.checked ? S.sel.add(id) : S.sel.delete(id);
       e.target.closest('tr')?.classList.toggle('selected', e.target.checked);

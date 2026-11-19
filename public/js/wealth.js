@@ -1,6 +1,6 @@
 // Insights → "Am I beating an index fund?" and "Profit and charges by year".
 // Built from the Zerodha funds ledger (money in/out, account fees) and the journal.
-import { parseLedger, cashFlows, ledgerByYear, ledgerCash, shadowPortfolio, fyOf, FEE_KINDS } from '../ledger.js';
+import { parseLedger, cashFlows, ledgerByYear, ledgerCash, shadowPortfolio, fyOf, fyRange, FEE_KINDS } from '../ledger.js';
 import { exitsOf, tradeCharges } from '../charges.js';
 import { xirr } from '../stats.js';
 import { mountWealthChart } from '../tradechart.js';
@@ -63,7 +63,33 @@ export function yearlyProfit() {
   return Object.values(years).sort((a, b) => b.fy.localeCompare(a.fy));
 }
 
+/** One financial year: money in/out, F&O result, booked P&L, charges and fees. */
+function yearSection(fy) {
+  const [from, to] = fyRange(fy);
+  const rows = (S.state.ledger || []).filter((r) => r.date >= from && r.date <= to);
+  const y = yearlyProfit().find((r) => r.fy === fy) || { gross: 0, tradeCharges: 0, fees: 0, deposits: 0, withdrawals: 0, feeKinds: {} };
+  const fnoTook = cashFlows(rows, 'fno').reduce((a, f) => a + f.amount, 0);
+  const mfBought = rows.filter((r) => /^STARMF/.test(r.costCenter) || /^investment in |^mf purchase|mf redemption/i.test(r.particulars)).reduce((a, r) => a + r.debit - r.credit, 0);
+  const net = y.gross - y.tradeCharges - y.fees;
+  const tile = (k, v, s2 = '') => `<div class="kpi"><div class="k">${k}</div><div class="v mono">${v}</div><div class="s">${s2}</div></div>`;
+  const kinds = Object.entries(y.feeKinds || {}).filter(([, v]) => Math.abs(v) >= 0.5).sort((a, b) => b[1] - a[1]);
+  return `<section class="card" style="margin-bottom:16px" id="wealth-card">
+    <header class="card-h"><h3>${fy.replace('FY', 'FY ')} at a glance</h3><span class="sub">${fmtDate(from)} – ${fmtDate(to)}</span></header>
+    <div class="kpis" style="margin-bottom:12px">
+      ${tile('Money added', rs0(y.deposits), rows.length ? 'from the ledger' : 'no ledger for this year')}
+      ${tile('Money withdrawn', rs0(y.withdrawals), mfBought ? `MF bought via Zerodha ${rs0(mfBought)}` : '')}
+      ${tile('F&O result (ledger)', `<span class="${cls(-fnoTook)}">${money(-fnoTook, { sign: true, dp: 0 })}</span>`, 'after charges, as settled')}
+      ${tile('Booked P&L (journal)', `<span class="${cls(y.gross)}">${money(y.gross, { sign: true, dp: 0 })}</span>`, `trading charges ${rs0(y.tradeCharges)}`)}
+      ${tile('Account fees', rs0(y.fees), kinds.slice(0, 2).map(([k, v]) => `${FEE_KINDS[k].split(' (')[0]} ${rs0(v)}`).join(' · '))}
+      ${tile('Net profit', `<span class="${cls(net)}">${money(net, { sign: true, dp: 0 })}</span>`, 'booked − charges − fees')}
+    </div>
+    <div id="wealth-year" data-fy="${fy}" class="note" style="margin:0">…</div>
+    <p class="faint" style="font-size:12px;margin:8px 0 0">A yearly return for the whole stock account needs its value on 31 March each year, which the ledger doesn't have — switch to <b>All time</b> for that. F&O is all settled in cash, so it can be judged year by year.</p>
+  </section>`;
+}
+
 export function wealthSection() {
+  if (S.insYear && S.insYear !== 'all') return yearSection(S.insYear);
   const ledger = S.state.ledger || [];
   if (!ledger.length) {
     return `<section class="card" style="margin-bottom:16px"><header class="card-h"><h3>Am I beating an index fund?</h3></header>
@@ -106,12 +132,13 @@ export function wealthSection() {
 export function yearlySection() {
   const rows = yearlyProfit();
   if (!rows.length) return '';
+  const sel = S.insYear && S.insYear !== 'all' ? S.insYear : null;
   const hasLedger = (S.state.ledger || []).length > 0;
   const tot = rows.reduce((a, r) => ({ gross: a.gross + r.gross, tc: a.tc + r.tradeCharges, fees: a.fees + r.fees }), { gross: 0, tc: 0, fees: 0 });
   const line = (r) => {
     const net = r.gross - r.tradeCharges - r.fees;
     const kinds = Object.entries(r.feeKinds || {}).filter(([, v]) => Math.abs(v) >= 0.5).sort((a, b) => b[1] - a[1]);
-    return `<tr><td><b>${r.fy}</b></td><td class="r num ${cls(r.gross)}">${money(r.gross, { sign: true, dp: 0 })}</td><td class="r num">${rs0(r.tradeCharges)}</td>
+    return `<tr${sel === r.fy ? ' class="sel-row"' : ''}><td><b>${r.fy}</b></td><td class="r num ${cls(r.gross)}">${money(r.gross, { sign: true, dp: 0 })}</td><td class="r num">${rs0(r.tradeCharges)}</td>
       <td class="r num">${hasLedger ? (kinds.length ? `<span title="${esc(kinds.map(([k, v]) => `${FEE_KINDS[k]}: ₹${Math.round(v)}`).join('\n'))}" style="text-decoration:underline dotted;cursor:help">${rs0(r.fees)}</span>` : rs0(0)) : '—'}</td>
       <td class="r num ${cls(net)}"><b>${money(net, { sign: true, dp: 0 })}</b></td></tr>`;
   };
@@ -151,9 +178,31 @@ function bindValueForm() {
   });
 }
 
+async function mountYear() {
+  const el = $('#wealth-year'); if (!el) return;
+  const fy = el.dataset.fy;
+  if (el.dataset.done === fy) return;
+  el.dataset.done = fy;
+  const [from, to] = fyRange(fy);
+  const today = istDay(new Date().toISOString());
+  const end = to < today ? to : today;
+  const flows = cashFlows((S.state.ledger || []).filter((r) => r.date >= from && r.date <= to), 'fno');
+  const took = flows.reduce((a, f) => a + f.amount, 0);
+  if (!flows.length) { el.textContent = 'No F&O this year.'; return; }
+  try {
+    const scheme = S.state.settings.benchmarkScheme || '120716';
+    S._bench ||= {};
+    const b = (S._bench[scheme] ||= await api(`/api/benchmark?scheme=${scheme}`));
+    const sh = shadowPortfolio(flows, b.nav, end);
+    if (!$('#wealth-year')) return;
+    el.innerHTML = `<b>F&O vs the index this year:</b> F&O ${took > 0 ? 'took' : 'returned'} <b class="${cls(-took)}">${rs0(Math.abs(took))}</b> net. The same money in the Nifty 50 fund on the same days would be worth <b>${rs0(sh.value)}</b> on ${fmtDate(end)}, against ₹0 left from F&O — ${sh.value >= 0 ? `F&O cost you <b class="neg">${rs0(sh.value)}</b> compared with simply holding the index` : `F&O came out <b class="pos">${rs0(-sh.value)}</b> ahead of the index`}.`;
+  } catch (e) { el.textContent = `Index prices unavailable: ${e.message}`; }
+}
+
 /** After render: load index-fund prices and draw the comparison. */
 export async function mountWealth() {
   bindValueForm();
+  mountYear();
   const host = $('#wealth-chart'); if (!host) return;
   const ledger = S.state.ledger || [];
   const scheme = S.state.settings.benchmarkScheme || '120716';
