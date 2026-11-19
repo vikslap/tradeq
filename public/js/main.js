@@ -1,4 +1,4 @@
-import { mountWealth, importLedgerFiles } from './wealth.js';
+import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
 import { computeGame, weekStart, isTrading } from '../game.js';
 import { computeStats } from '../stats.js';
 import { handleDrawClick } from '../drawing.js';
@@ -195,6 +195,7 @@ export function bindGlobal() {
   // Journal filters
   document.addEventListener('input', (e) => {
     if (e.target.hasAttribute?.('data-action-view')) { S.view = e.target.value; render(); return; }
+    if (e.target.name === 'wealth-scope') { setWealthScope(e.target.value); render(); return; }
     if (e.target.dataset?.sel) {
       const id = e.target.dataset.sel; e.target.checked ? S.sel.add(id) : S.sel.delete(id);
       e.target.closest('tr')?.classList.toggle('selected', e.target.checked);

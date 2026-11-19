@@ -41,3 +41,16 @@ test('shadow index fund: buys on deposits, sells on withdrawals', () => {
   assert.equal(sh.invested, 890);
   assert.equal(sh.points.at(-1).date, '2026-01-01');
 });
+
+test('scopes: equity + F&O add up to combined', () => {
+  const rows = parseLedger(`particulars,posting_date,cost_center,voucher_type,debit,credit,net_balance
+Funds added using UPI,2025-04-01,NSE-EQ - Z,Bank Receipts,0,10000,10000
+Net obligation for Equity F&O,2025-04-02,NSE-F&O - Z,Book Voucher,3000,0,7000
+Net obligation for Equity F&O,2025-04-03,NSE-F&O - Z,Book Voucher,0,1000,8000
+Payout of 5000,2025-05-01,NSE-EQ - Z,Bank Payments,5000,0,3000`);
+  const sum = (s) => cashFlows(rows, s).reduce((a, f) => a + f.amount, 0);
+  assert.equal(sum('combined'), 5000);
+  assert.equal(sum('fno'), 2000);  // F&O took ₹2,000 net
+  assert.equal(sum('equity'), 3000);
+  assert.equal(sum('equity') + sum('fno'), sum('combined'));
+});

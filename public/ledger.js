@@ -96,13 +96,20 @@ export function ledgerByYear(rows) {
  * redemptions as money coming back), because most MF money (SIPs paid from the
  * bank) never passes through the ledger — so MFs are kept out of the comparison.
  */
-export function cashFlows(rows) {
+export function cashFlows(rows, scope = 'combined') {
+  // scope: 'combined' — the whole stock account (stocks + F&O)
+  //        'equity'   — the same, with F&O treated as a separate pot: money F&O takes is
+  //                     "taken out", money it returns is "put in"
+  //        'fno'      — only the F&O / commodity pot: money it took is "put in", money it
+  //                     returned is "taken out"
   const out = [];
   for (const r of rows) {
     const cat = categorise(r);
+    if (scope === 'fno') { if (cat === 'fno') out.push({ date: r.date, amount: r.debit - r.credit }); continue; }
     if (cat === 'deposit') out.push({ date: r.date, amount: r.credit - r.debit });
     else if (cat === 'withdrawal') out.push({ date: r.date, amount: -(r.debit - r.credit) });
     else if (cat === 'mf') out.push({ date: r.date, amount: -(r.debit - r.credit) });
+    else if (cat === 'fno' && scope === 'equity') out.push({ date: r.date, amount: r.credit - r.debit });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
