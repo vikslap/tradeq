@@ -19,12 +19,13 @@ const COLLECTIONS = {
   trades: { get: (s) => s.trades, set: (s, v) => { s.trades = v; } },
   reviews: { get: (s) => s.reviews, set: (s, v) => { s.reviews = v; } },
   groups: { get: (s) => s.groups, set: (s, v) => { s.groups = v; } },
+  ledger: { get: (s) => s.ledger, set: (s, v) => { s.ledger = v; } },
   practice: { get: (s) => s.practice?.sessions, set: (s, v) => { s.practice = { ...(s.practice || {}), sessions: v }; } },
 };
 
 function explode(state, prev) {
   const out = new Map();
-  const root = { ...state, trades: undefined, reviews: undefined, groups: undefined, practice: { ...(state.practice || {}), sessions: undefined } };
+  const root = { ...state, trades: undefined, reviews: undefined, groups: undefined, ledger: undefined, practice: { ...(state.practice || {}), sessions: undefined } };
   out.set('root', { seq: 0, body: JSON.stringify(root) });
   for (const [name, c] of Object.entries(COLLECTIONS)) {
     const list = c.get(state) || [];

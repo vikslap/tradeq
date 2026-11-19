@@ -1,3 +1,4 @@
+import { mountWealth, importLedgerFiles } from './wealth.js';
 import { computeGame, weekStart, isTrading } from '../game.js';
 import { computeStats } from '../stats.js';
 import { handleDrawClick } from '../drawing.js';
@@ -35,6 +36,7 @@ export function render() {
   $('#main').innerHTML = (pages[page] || pageDashboard)();
   mountEquity();
   if (page === 'practice') mountPractice();
+  if (page === 'insights') mountWealth();
   if (page === 'settings') bindSettings();
   if (page === 'review') bindReview();
   if (S.drawerId) renderDrawer();
@@ -98,6 +100,12 @@ export const actions = {
     if (!(await confirmBox('Really start from zero?', 'Last check: your journal will be empty.', 'Yes, reset'))) return;
     try { const r = await api('/api/journal/reset', { method: 'POST' }); await reload(); toast(`Journal reset · ${r.removed} trades removed`); } catch (e) { toast(esc(e.message), 'err'); }
   },
+  'ledger-import': () => importLedgerFiles(),
+  'ledger-clear': async () => {
+    if (!(await confirmBox('Remove the imported ledger?', 'Money in/out and account fees disappear from Insights. Your trades are not touched.', 'Remove'))) return;
+    try { await api('/api/ledger', { method: 'DELETE' }); await reload(); } catch (e) { toast(esc(e.message), 'err'); }
+  },
+  'acct-value-clear': async () => { try { await api('/api/settings', { method: 'PUT', body: { accountValue: null } }); await reload(); } catch (e) { toast(esc(e.message), 'err'); } },
   'app-logout': async () => { await fetch('/api/auth/logout', { method: 'POST' }); location.reload(); },
   'edit-exit': (el) => { const t = findTrade(el.dataset.id); openCloseForm(t, { exitPrice: t.exitPrice, exitTime: t.exitTime, exitSource: t.exitSource, edit: true }); },
   'reopen-trade': async (el) => {

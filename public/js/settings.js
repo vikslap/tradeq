@@ -59,8 +59,9 @@ export function pageSettings() {
     </section>
     <section class="card"><header class="card-h"><h3>Your data</h3></header>
       <p class="muted" style="margin-top:0">${hosted ? 'Your journal lives in your own Cloudflare D1 database (with 7–30 days of point-in-time recovery). Export now and then anyway.' : 'Everything lives in <code>data/journal.json</code> on this computer (a backup copy is made on every start). Export regularly.'}</p>
-      <div class="row wrap"><a class="btn" href="/api/export" download>⬇ Export JSON</a><label class="btn">⬆ Import JSON<input type="file" accept="application/json" id="import-file" hidden></label><button class="btn" data-action="tradebook-import">⬆ Import Zerodha tradebook</button>${hosted ? '<button class="btn ghost" data-action="app-logout">Log out of TradeQuest</button>' : ''}</div>
-      <p class="faint" style="font-size:12px">Import replaces the whole journal.</p>
+      <div class="row wrap"><a class="btn" href="/api/export" download>⬇ Export JSON</a><label class="btn">⬆ Import JSON<input type="file" accept="application/json" id="import-file" hidden></label><button class="btn" data-action="tradebook-import">⬆ Import Zerodha tradebook</button><button class="btn" data-action="ledger-import">⬆ Import Zerodha ledger</button>${hosted ? '<button class="btn ghost" data-action="app-logout">Log out of TradeQuest</button>' : ''}</div>
+      <p class="faint" style="font-size:12px">Import JSON replaces the whole journal. The tradebook and ledger imports add to it and skip anything already there — you can import several years' files at once.</p>
+      ${(S.state.ledger || []).length ? `<div class="mistake"><span>Ledger: <b>${S.state.ledger.length}</b> entries, ${esc(S.state.ledger[0].date)} → ${esc(S.state.ledger.at(-1).date)}</span><button class="btn sm ghost" data-action="ledger-clear">Remove</button></div>` : ''}
     </section>
     <section class="card danger-zone"><header class="card-h"><h3>Start over</h3></header>
       <p class="muted" style="margin-top:0">Export first if you might want any of it back.</p>

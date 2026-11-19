@@ -1,3 +1,4 @@
+import { wealthSection, yearlySection } from './wealth.js';
 import { dayKey, weekStart, MISTAKES, mistakeName, HORIZON_LABEL } from '../game.js';
 import { computeStats, groupBy, rHistogram } from '../stats.js';
 import { $, esc, num, sum, money, compact, pct, rfmt, cls, hold, SEGMENTS } from './util.js';
@@ -21,7 +22,8 @@ export function bars(groups, { fmt = (v) => money(v, { sign: true, dp: 0 }) } = 
 export function pageInsights() {
   const st = computeStats(viewTrades(), S.state.groups); const g = S.game;
   const head = `<div class="page-h"><div><h1>Insights</h1><p>Where your edge lives — and where it leaks.</p></div>${viewSeg()}</div>`;
-  if (!st.count) return `${head}<div class="card empty"><div class="big">📊</div><h2>Close a few trades to unlock insights</h2><p>You'll see P&L by setup, weekday and emotion, your R-multiple distribution, and exactly what your mistakes cost you.</p></div>`;
+  const money_ = wealthSection() + yearlySection();
+  if (!st.count) return `${head}${money_}<div class="card empty"><div class="big">📊</div><h2>Close a few trades to unlock insights</h2><p>You'll see P&L by setup, weekday and emotion, your R-multiple distribution, and exactly what your mistakes cost you.</p></div>`;
   const closed = st.closed;
   const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const hist = rHistogram(closed); const hmax = Math.max(...hist.map((h) => h.count), 1);
@@ -52,7 +54,7 @@ export function pageInsights() {
     ['Hold: winners', st.avgHoldWin == null ? '—' : hold(st.avgHoldWin), `losers ${st.avgHoldLoss == null ? '—' : hold(st.avgHoldLoss)}`],
     ['Best trade', `<span class="pos">${compact(st.best?.m.net)}</span>`, `${esc(st.best?.t.symbol || '')} · worst ${compact(st.worst?.m.net)}`],
   ];
-  return `${head}
+  return `${head}${money_}
   <div class="kpis" style="margin-bottom:16px">${tiles.map(([k, v, s]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('')}</div>
   <div class="insights">
     <section class="card span-2"><header class="card-h"><h3>Discipline pays: clean trades vs trades with a broken rule</h3></header>

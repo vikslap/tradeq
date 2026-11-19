@@ -210,6 +210,7 @@ input[type=number]::-webkit-inner-spin-button { opacity: .3; }
 .quest.done .mini-bar span { background: var(--green); }
 
 .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+.kpis.k4 { grid-template-columns: repeat(4, 1fr); }
 .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 15px; min-width: 0; }
 .kpi .k { font-size: 11.5px; color: var(--muted); font-weight: 550; }
 .kpi .v { font-family: var(--mono); font-size: 19px; font-weight: 650; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -518,3 +519,5 @@ details.charges .stat-line { padding: 3px 0; font-size: 12px; }
 /* hosted version: login */
 .login-screen { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: var(--bg); }
 .login-card { width: min(360px, 100%); background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 26px 22px; box-shadow: var(--shadow); }
+
+@media (max-width: 760px) { .kpis.k4 { grid-template-columns: 1fr 1fr; } }

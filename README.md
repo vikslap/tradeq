@@ -214,3 +214,21 @@ npx wrangler deploy
 ```
 
 Both versions share the same API code (`lib/api.js`). The local server (`server.js`) stores the journal in `data/journal.json`, and the Worker (`worker/index.js`) stores it in D1.
+
+## Funds ledger: real returns, index-fund comparison, yearly charges
+
+Import your Zerodha funds ledger: **Settings → ⬆ Import Zerodha ledger**, or the button in **Insights**. Download it from Console → Funds → Statement → Ledger as CSV. You can pick several years' files at once; overlapping entries are skipped.
+
+In **Insights** you then get:
+
+- **Am I beating an index fund?**
+  - Your net money put in (added − withdrawn), your gain, and your yearly return (XIRR).
+  - The same deposits and withdrawals, on the same dates, run through a Nifty 50 index fund (UTI Nifty 50 Index Fund, direct growth, using AMFI's daily prices). The gap is your real edge in rupees.
+  - "Value today" comes from Kite (stocks + mutual funds + ledger cash). You can type a figure instead.
+- **Profit and charges by year** (Indian financial year):
+  - booked P&L
+  - trading charges (brokerage, STT, exchange, SEBI, stamp, GST)
+  - account fees from the ledger (DP charges, AMC, gateway fees, late-payment interest, auto square-off, subscriptions)
+  - net profit
+
+The dashboard equity curve is now spaced by calendar time, so quiet years no longer look as long as busy months.

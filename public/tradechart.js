@@ -190,7 +190,19 @@ export function mountEquityChart(container, curve, { height = 240 } = {}) {
     topLineColor: C.green, topFillColor1: alpha(C.green, 0.28), topFillColor2: alpha(C.green, 0.02),
     bottomLineColor: C.red, bottomFillColor1: alpha(C.red, 0.02), bottomFillColor2: alpha(C.red, 0.28),
   });
-  s.setData(curve.map((p) => ({ time: p.day, value: p.v })));
+  // One point per calendar day (carrying the last value over quiet days), so the
+  // time axis is spaced by real time instead of by trading days.
+  const filled = [];
+  const byDay = new Map(curve.map((p) => [p.day, p]));
+  if (curve.length) {
+    let last = curve[0];
+    for (let t = Date.parse(curve[0].day + 'T00:00:00Z'); t <= Date.parse(curve.at(-1).day + 'T00:00:00Z'); t += 86400000) {
+      const day = new Date(t).toISOString().slice(0, 10);
+      last = byDay.get(day) || last;
+      filled.push({ time: day, value: last.v });
+    }
+  }
+  s.setData(filled);
   s.createPriceLine({ price: 0, color: alpha(C.text, 0.5), lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: false });
   const money = (v) => `${v < 0 ? '−' : v > 0 ? '+' : ''}₹${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(Math.abs(v))}`;
   const show = (p) => {
@@ -199,7 +211,45 @@ export function mountEquityChart(container, curve, { height = 240 } = {}) {
     legend.innerHTML = `<span>${d}</span><span>Equity <b style="color:${p.v >= 0 ? C.green : C.red}">${money(p.v)}</b></span>${p.n ? `<span>Day <b style="color:${p.pnl >= 0 ? C.green : C.red}">${money(p.pnl)}</b> · ${p.n} trade${p.n > 1 ? 's' : ''}</span>` : ''}`;
   };
   show(curve.at(-1));
-  chart.subscribeCrosshairMove((param) => { show(param.time ? curve.find((p) => p.day === param.time) : curve.at(-1)); });
+  chart.subscribeCrosshairMove((param) => {
+    if (!param.time) return show(curve.at(-1));
+    const hit = byDay.get(param.time);
+    show(hit || { day: param.time, v: filled.find((f) => f.time === param.time)?.value ?? 0 });
+  });
+  chart.timeScale().fitContent();
+  return { chart, destroy() { chart.remove(); } };
+}
+
+/** Money put in vs the same money in an index fund (weekly), with your value today as a line. */
+export function mountWealthChart(container, points, { you = null, fundName = 'Index fund', height = 260 } = {}) {
+  const C = { text: css('--muted'), border: css('--border'), accent: css('--accent'), green: css('--green'), gold: css('--gold') || css('--accent') };
+  const el = document.createElement('div');
+  el.className = 'tq-chart'; el.style.height = `${height}px`;
+  container.replaceChildren(el);
+  const legend = document.createElement('div'); legend.className = 'tq-legend'; el.appendChild(legend);
+  const chart = createChart(el, {
+    autoSize: true,
+    layout: { background: { color: 'transparent' }, textColor: C.text, fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 11, attributionLogo: true },
+    grid: { vertLines: { visible: false }, horzLines: { color: alpha(C.border, 0.35) } },
+    rightPriceScale: { borderColor: C.border },
+    timeScale: { borderColor: C.border, rightOffset: 2 },
+    crosshair: { mode: CrosshairMode.Magnet },
+    localization: { priceFormatter: (p) => `₹${nfc.format(p)}` },
+    handleScroll: false, handleScale: false,
+  });
+  const inv = chart.addSeries(LineSeries, { color: alpha(C.text, 0.8), lineWidth: 2, lineType: LineType.WithSteps, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false });
+  const fund = chart.addSeries(LineSeries, { color: C.accent, lineWidth: 2, priceLineVisible: false });
+  inv.setData(points.map((p) => ({ time: p.date, value: p.invested })));
+  fund.setData(points.map((p) => ({ time: p.date, value: p.value })));
+  if (you != null) fund.createPriceLine({ price: you, color: C.green, lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'You today' });
+  const rs = (v) => `₹${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(v)}`;
+  const show = (p) => {
+    if (!p) { legend.innerHTML = ''; return; }
+    const d = new Date(`${p.date}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+    legend.innerHTML = `<span>${d}</span><span>Put in <b>${rs(p.invested)}</b></span><span>${fundName} <b style="color:${C.accent}">${rs(p.value)}</b></span>`;
+  };
+  show(points.at(-1));
+  chart.subscribeCrosshairMove((param) => show(param.time ? points.find((p) => p.date === param.time) : points.at(-1)));
   chart.timeScale().fitContent();
   return { chart, destroy() { chart.remove(); } };
 }

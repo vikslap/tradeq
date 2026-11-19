@@ -7,13 +7,13 @@ const { explode, implode, chunk } = _internal;
 const rows = (m) => [...m].map(([id, d]) => ({ id, ...d }));
 
 test('journal survives the trip into per-record rows and back, in order', () => {
-  const s = { version: 1, settings: { capital: 5 }, trades: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], reviews: [], groups: [{ id: 'g' }], practice: { sessions: [{ id: 'p1' }] } };
+  const s = { version: 1, settings: { capital: 5 }, trades: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], reviews: [], groups: [{ id: 'g' }], ledger: [{ id: 'l1', date: '2026-01-01' }], practice: { sessions: [{ id: 'p1' }] } };
   const m = explode(s, new Map());
   assert.deepEqual(implode(rows(m)), s);
 });
 
 test('appends, newest-first inserts and deletes keep order without rewriting other rows', () => {
-  const s = { version: 1, settings: {}, trades: [{ id: 'a' }, { id: 'b' }], reviews: [], groups: [], practice: { sessions: [{ id: 'p1' }, { id: 'p2' }] } };
+  const s = { version: 1, settings: {}, trades: [{ id: 'a' }, { id: 'b' }], reviews: [], groups: [], ledger: [], practice: { sessions: [{ id: 'p1' }, { id: 'p2' }] } };
   const m1 = explode(s, new Map());
   const s2 = { ...s, trades: [{ id: 'b' }, { id: 'c' }], practice: { sessions: [{ id: 'p0' }, { id: 'p1' }, { id: 'p2' }] } };
   const m2 = explode(s2, m1);

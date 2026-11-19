@@ -126,3 +126,13 @@ test('renameSymbol renames cash-equity trades and remembers the mapping', () => 
   assert.deepEqual(store.getState().settings.symbolRenames, [{ from: 'ACRYSIL', to: 'CARYSIL' }]);
   assert.throws(() => store.renameSymbol({ from: 'X', to: 'X' }));
 });
+
+test('importLedger skips entries already imported (overlapping files)', () => {
+  const row = { date: '2025-04-23', particulars: 'Funds added using UPI', debit: 0, credit: 5000, balance: 5100 };
+  const a = store.importLedger({ rows: [row, { ...row, date: '2025-04-24', balance: 5200 }] });
+  assert.equal(a.added, 2);
+  const b = store.importLedger({ rows: [row] });
+  assert.equal(b.added, 0); assert.equal(b.skipped, 1);
+  store.clearLedger();
+  assert.equal(store.getState().ledger.length, 0);
+});
