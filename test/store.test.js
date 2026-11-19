@@ -136,3 +136,22 @@ test('importLedger skips entries already imported (overlapping files)', () => {
   store.clearLedger();
   assert.equal(store.getState().ledger.length, 0);
 });
+
+test('bulkUpdate sets the type of several trades', () => {
+  const a = store.createTrade({ symbol: 'AAA', exchange: 'NSE', side: 'LONG', qty: 1, entryPrice: 10, entryTime: '2026-01-02T04:00:00Z' });
+  const b = store.createTrade({ symbol: 'BBB', exchange: 'NSE', side: 'LONG', qty: 1, entryPrice: 10, entryTime: '2026-01-02T04:00:00Z' });
+  const r = store.bulkUpdate({ ids: [a.id, b.id], horizon: 'LONGTERM' });
+  assert.equal(r.updated, 2);
+  assert.ok(store.getState().trades.filter((t) => [a.id, b.id].includes(t.id)).every((t) => t.horizon === 'LONGTERM'));
+  assert.throws(() => store.bulkUpdate({ ids: [a.id], horizon: 'NOPE' }));
+});
+
+test('one-time migration: imported trades held over a year become Long-term', () => {
+  const st = store.load({ trades: [
+    { id: 'm1', symbol: 'OLD', exchange: 'NSE', side: 'LONG', qty: 1, entryPrice: 10, entryTime: '2022-01-03T04:00:00Z', status: 'CLOSED', exitPrice: 12, exitTime: '2024-01-03T04:00:00Z', horizon: 'POSITIONAL', imported: true },
+    { id: 'm2', symbol: 'MAN', exchange: 'NSE', side: 'LONG', qty: 1, entryPrice: 10, entryTime: '2022-01-03T04:00:00Z', status: 'CLOSED', exitPrice: 12, exitTime: '2024-01-03T04:00:00Z', horizon: 'POSITIONAL' },
+  ] });
+  assert.equal(st.trades.find((t) => t.id === 'm1').horizon, 'LONGTERM');
+  assert.equal(st.trades.find((t) => t.id === 'm2').horizon, 'POSITIONAL'); // your own choice is kept
+  assert.equal(st.migrations.longTermOverAYear.count, 1);
+});

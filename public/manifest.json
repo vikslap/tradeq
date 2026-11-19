@@ -1,10 +1,23 @@
 {
-  "name": "TradeQuest",
+  "id": "/",
+  "name": "TradeQuest — trading journal",
   "short_name": "TradeQuest",
-  "description": "Gamified trading journal",
+  "description": "Gamified trading journal with Zerodha Kite prices",
   "start_url": "/#/dashboard",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#0b0f17",
   "theme_color": "#0b0f17",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "New trade", "url": "/#/dashboard?new=1", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Insights", "url": "/#/insights", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
 }

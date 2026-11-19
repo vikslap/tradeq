@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTradebook, buildTrips, planImport } from '../public/tradebook.js';
+import { parseTradebook, buildTrips, planImport, guessHorizon } from '../public/tradebook.js';
 import { computeGame } from '../public/game.js';
 
 const HEAD = 'symbol,isin,trade_date,exchange,segment,series,trade_type,auction,quantity,price,trade_id,order_id,order_execution_time';
@@ -134,4 +134,10 @@ test('renamed company: old-symbol buy pairs with new-symbol sell', () => {
   assert.ok(before.some((t) => t.symbol === 'ACRYSIL' && t.status === 'OPEN'));
   const { trips } = buildTrips(parseTradebook(text, [{ from: 'ACRYSIL', to: 'CARYSIL' }]));
   assert.deepEqual(trips.map((t) => [t.symbol, t.status, t.qty]), [['CARYSIL', 'CLOSED', 10]]);
+});
+
+test('trades held over a year are typed Long-term', () => {
+  assert.equal(guessHorizon('2024-01-01T04:00:00Z', '2025-03-01T04:00:00Z'), 'LONGTERM');
+  assert.equal(guessHorizon('2025-01-01T04:00:00Z', '2025-03-01T04:00:00Z'), 'POSITIONAL');
+  assert.equal(guessHorizon('2025-01-01T04:00:00Z', null, Date.parse('2026-06-01')), 'LONGTERM');
 });

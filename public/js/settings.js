@@ -47,6 +47,13 @@ export function pageSettings() {
     ${(s.syncIgnore || []).length ? `<section class="card"><header class="card-h"><h3>Ignored in Kite sync</h3></header>
       <p class="muted" style="margin-top:0">These Kite holdings won't be flagged as missing from your journal.</p>
       ${s.syncIgnore.map((k) => `<div class="mistake"><span class="mono">${esc(k.replace(/^EQ:/, ''))}</span><button class="btn sm ghost" data-action="sync-unignore" data-key="${esc(k)}">Stop ignoring</button></div>`).join('')}</section>` : ''}
+    <section class="card"><header class="card-h"><h3>📲 Use it like an app</h3></header>
+      ${matchMedia('(display-mode: standalone)').matches
+        ? '<p class="muted" style="margin:0">You\'re using the installed app. 👍</p>'
+        : `<p class="muted" style="margin-top:0">Install TradeQuest on your phone's home screen: it opens full-screen like an app, without the browser bar, and stays logged in.</p>
+      ${S.installPrompt ? '<button class="btn primary" data-action="install-app">📲 Install TradeQuest</button>' : ''}
+      <div class="faint" style="font-size:12.5px;margin-top:8px;line-height:1.6"><b>Android (Chrome):</b> open this site → <b>⋮</b> menu → <b>Install app</b> (or <b>Add to Home screen</b> → <b>Install</b>).<br><b>iPhone (Safari):</b> <b>Share</b> → <b>Add to Home Screen</b>.<br>${location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname) ? '' : 'Installing needs the hosted (https://) version.'}</div>`}
+    </section>
     <section class="card"><header class="card-h"><h3>Renamed stocks</h3><span class="sub">e.g. ACRYSIL → CARYSIL</span></header>
       <p class="muted" style="margin-top:0">When a company changes its NSE/BSE symbol, rename it here. Your trades switch to the new symbol (so live prices work), and future tradebook imports treat the old symbol as the new one, so old buys pair up with new sells.</p>
       <form class="row wrap" id="rename-form" autocomplete="off" style="gap:8px">

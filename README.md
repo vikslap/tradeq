@@ -200,7 +200,7 @@ test/                node:test unit tests → npm test
 
 ## On your phone
 
-The layout adapts to phone screens: a bottom tab bar, a compact top bar, full-screen forms and trade panels, the journal as a card list, and touch-friendly chart drawing. Use "Add to Home screen" in your phone's browser to open it like an app. To reach it from your phone, use the hosted (Cloudflare) version, which has a password. The local server only listens on your own PC, because it has no login.
+The layout adapts to phone screens: a bottom tab bar, a compact top bar, full-screen forms and trade panels, the journal as a card list, and touch-friendly chart drawing. To install it as an app on Android, open the hosted site in Chrome → ⋮ → **Install app**, or use the **📲 Install TradeQuest** button in Settings. It opens full-screen from your home screen, and long-pressing the icon gives *New trade* and *Insights* shortcuts. On iPhone: Safari → Share → **Add to Home Screen**. To reach it from your phone, use the hosted (Cloudflare) version, which has a password. The local server only listens on your own PC, because it has no login.
 
 ## Hosting on Cloudflare (phone access)
 
@@ -232,3 +232,7 @@ In **Insights** you then get:
   - net profit
 
 The dashboard equity curve is now spaced by calendar time, so quiet years no longer look as long as busy months.
+
+## Trade types
+
+The tradebook import types each trade by how long it was held: same day = Intraday, up to 20 days = Swing, over a year = Long-term, anything else = Positional. A one-time update applied this rule to trades imported before it existed; trades you typed yourself keep their type. To change several trades at once, tick them in the Journal and use **Set type…**.

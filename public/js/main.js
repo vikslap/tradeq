@@ -1,5 +1,5 @@
 import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
-import { computeGame, weekStart, isTrading } from '../game.js';
+import { computeGame, weekStart, isTrading, HORIZON_LABEL } from '../game.js';
 import { computeStats } from '../stats.js';
 import { handleDrawClick } from '../drawing.js';
 import { initPractice, pagePractice, mountPractice, practiceAction, practiceKey } from '../practice.js';
@@ -106,6 +106,13 @@ export const actions = {
     try { await api('/api/ledger', { method: 'DELETE' }); await reload(); } catch (e) { toast(esc(e.message), 'err'); }
   },
   'acct-value-clear': async () => { try { await api('/api/settings', { method: 'PUT', body: { accountValue: null } }); await reload(); } catch (e) { toast(esc(e.message), 'err'); } },
+  'install-app': async () => {
+    const p = S.installPrompt; if (!p) return;
+    p.prompt();
+    const { outcome } = await p.userChoice.catch(() => ({}));
+    S.installPrompt = null; render();
+    if (outcome === 'accepted') toast('📲 Installing TradeQuest…');
+  },
   'app-logout': async () => { await fetch('/api/auth/logout', { method: 'POST' }); location.reload(); },
   'edit-exit': (el) => { const t = findTrade(el.dataset.id); openCloseForm(t, { exitPrice: t.exitPrice, exitTime: t.exitTime, exitSource: t.exitSource, edit: true }); },
   'reopen-trade': async (el) => {
@@ -197,6 +204,13 @@ export function bindGlobal() {
     if (e.target.hasAttribute?.('data-action-view')) { S.view = e.target.value; render(); return; }
     if (e.target.name === 'wealth-scope') { setWealthScope(e.target.value); render(); return; }
     if (e.target.name === 'ins-year') { S.insYear = e.target.value; render(); return; }
+    if (e.target.name === 'bulk-type' && e.target.value) {
+      const horizon = e.target.value; const ids = [...S.sel];
+      api('/api/trades/bulk', { method: 'POST', body: { ids, horizon } })
+        .then(async (r) => { S.sel.clear(); await reload(); toast(`${r.updated} trade${r.updated === 1 ? '' : 's'} set to ${esc(HORIZON_LABEL[horizon] || horizon)}`); })
+        .catch((err) => toast(esc(err.message), 'err'));
+      return;
+    }
     if (e.target.dataset?.sel) {
       const id = e.target.dataset.sel; e.target.checked ? S.sel.add(id) : S.sel.delete(id);
       e.target.closest('tr')?.classList.toggle('selected', e.target.checked);
@@ -241,6 +255,11 @@ export function bindGlobal() {
 // =====================================================================
 // Boot
 // =====================================================================
+// Installable app (Android Chrome "Install app" / "Add to Home screen").
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.installPrompt = e; if (route().page === 'settings') render(); });
+window.addEventListener('appinstalled', () => { S.installPrompt = null; toast('📲 TradeQuest installed — open it from your home screen'); });
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+
 export async function boot() {
   bindGlobal();
   initPractice({ api, state: () => S.state, kite: () => S.kite, toast, esc, reload, openModal, closeModal });
@@ -260,6 +279,7 @@ export async function boot() {
   if (params.get('kite') === 'ok') { toast(`<div class="t-h">⚡ Kite connected</div><div class="muted" style="font-size:12px;margin-top:4px">Live prices are on until ~6 AM tomorrow.</div>`); history.replaceState(null, '', '#/settings'); }
   if (params.get('kite') === 'error') { toast(`Kite login failed: ${esc(params.get('msg') || 'unknown error')}`, 'err'); history.replaceState(null, '', '#/settings'); }
   render();
+  if (params.get('new') === '1') { history.replaceState(null, '', '#/dashboard'); openTradeForm(); }
   pollQuotes();
   setInterval(pollQuotes, 5000);
   setInterval(async () => { const before = S.kite.connected; await loadKite(); if (before !== S.kite.connected) { await loadPortfolio(); render(); } }, 60000);

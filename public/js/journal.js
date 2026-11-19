@@ -21,7 +21,7 @@ export function filteredTrades() {
 export function selBar() {
   const n = S.sel.size;
   if (!n) return '';
-  return `<span class="row" style="gap:6px"><span class="pill violet">${n} selected</span>${n >= 2 ? '<button class="btn sm primary" data-action="link-selected">🔗 Link as one position</button>' : '<span class="faint" style="font-size:12px">select 2+ legs to link</span>'}<button class="btn sm ghost" data-action="clear-sel">Clear</button></span>`;
+  return `<span class="row" style="gap:6px"><span class="pill violet">${n} selected</span><select class="input sm-select" name="bulk-type" title="Change the type of the selected trades"><option value="">Set type…</option>${HORIZONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>${n >= 2 ? '<button class="btn sm primary" data-action="link-selected">🔗 Link as one position</button>' : ''}<button class="btn sm ghost" data-action="clear-sel">Clear</button></span>`;
 }
 
 

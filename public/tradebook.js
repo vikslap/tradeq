@@ -88,10 +88,14 @@ const wavg = (fills) => fills.reduce((s, f) => s + f.qty * f.price, 0) / fills.r
 const qsum = (fills) => fills.reduce((s, f) => s + f.qty, 0);
 
 /** Same-day intraday horizon guess; matches the server's migration rule. */
+/** Held for more than a year → treated as a long-term investment. */
+export const LONG_TERM_DAYS = 365;
+
 export function guessHorizon(entryTime, exitTime, now = Date.now()) {
   if (exitTime && istDay(entryTime) === istDay(exitTime)) return 'INTRADAY';
   const end = exitTime ? new Date(exitTime).getTime() : now;
-  return (end - new Date(entryTime).getTime()) / 86400000 <= 20 ? 'SWING' : 'POSITIONAL';
+  const days = (end - new Date(entryTime).getTime()) / 86400000;
+  return days > LONG_TERM_DAYS ? 'LONGTERM' : days <= 20 ? 'SWING' : 'POSITIONAL';
 }
 
 // ---------- pairing ----------
