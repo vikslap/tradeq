@@ -6,6 +6,18 @@ The local version (`npm start`) keeps working exactly as before. The two version
 
 **What it costs:** the free Workers plan is enough for one person's journal. If you ever see "Exceeded CPU time" errors (possible with a very large journal), the Workers Paid plan ($5/month) removes that limit.
 
+## Easiest: all in the browser (no command line)
+
+1. **Create the database.** In dash.cloudflare.com, go to **Storage & databases → D1 → Create database** and name it `tradequest`. Copy its **Database ID**.
+2. **Put the ID in the repo.** On github.com, open `wrangler.toml` in `vikslap/tradeq`, click ✏️ Edit, and replace `PASTE-YOUR-DATABASE-ID-HERE` with the ID. Commit.
+3. **Connect the repo.** Go to **Workers & Pages → Create application → Import a repository**, connect GitHub, and pick `vikslap/tradeq`. The project name must be **`tradequest`** (the same as `name` in `wrangler.toml`). Leave the build command empty, set the deploy command to `npx wrangler deploy`, then **Save and Deploy**.
+4. **Add the secrets.** Open the `tradequest` Worker → **Settings → Variables and Secrets → Add**. Set the type to **Secret** and add `APP_PASSWORD` (12+ characters), plus `KITE_API_KEY` and `KITE_API_SECRET` if you use Kite.
+5. Open the `…workers.dev` address shown on the Worker's page, then continue with steps 5–7 below (Kite redirect URL, moving your journal, phone).
+
+After this, every push to GitHub redeploys automatically.
+
+The command-line route below does the same thing.
+
 ## 1. One-time setup
 
 You need a free Cloudflare account (dash.cloudflare.com) and Node 18+ (you already have it).
