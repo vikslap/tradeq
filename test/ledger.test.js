@@ -29,7 +29,7 @@ test('categories, fee kinds and financial years', () => {
   const [y] = ledgerByYear(rows);
   assert.equal(y.fy, 'FY25-26'); assert.equal(y.deposits, 5000); assert.equal(y.withdrawals, 600);
   assert.ok(Math.abs(y.fees - 103.84) < 1e-9);
-  assert.deepEqual(cashFlows(rows).map((f) => f.amount), [5000, -600]);
+  assert.deepEqual(cashFlows(rows).map((f) => f.amount), [5000, -600, -40]);
   assert.deepEqual(ledgerCash(rows), { amount: 9.99, date: '2026-03-04' });
 });
 

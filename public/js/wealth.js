@@ -20,7 +20,8 @@ export function accountValue() {
     const stocks = (p.holdings || []).reduce((a, h) => a + (h.qty || 0) * (h.lastPrice || h.avgPrice || 0), 0);
     const mf = (p.mf || []).reduce((a, h) => a + (h.qty || 0) * (h.lastPrice || 0), 0);
     const cash = ledgerCash(S.state.ledger)?.amount || 0;
-    return { value: stocks + mf + cash, parts: { stocks, mf, cash }, source: 'kite', date: new Date().toISOString() };
+    // Mutual funds are left out: SIPs paid from the bank never show up in the ledger.
+    return { value: stocks + cash, parts: { stocks, mf, cash }, source: 'kite', date: new Date().toISOString() };
   }
   if (manual) return { value: manual.value, source: 'manual', date: manual.date };
   return null;
@@ -64,20 +65,20 @@ export function wealthSection() {
   }
   const span = flows.length ? `${fmtDate(flows[0].date)} – today` : '';
   const valueBox = `<div class="field" style="margin:0"><label>Value today ${acct?.source === 'kite' ? '<span class="pill">from Kite</span>' : ''}</label>
-    <form class="row" id="acct-value-form" style="gap:6px"><input class="input num" name="value" type="number" step="any" min="0" placeholder="Holdings + MF + cash" value="${acct?.source === 'manual' ? acct.value : ''}" style="max-width:180px">
+    <form class="row" id="acct-value-form" style="gap:6px"><input class="input num" name="value" type="number" step="any" min="0" placeholder="Stocks + cash" value="${acct?.source === 'manual' ? acct.value : ''}" style="max-width:180px">
     <button class="btn sm" type="submit">${acct?.source === 'manual' ? 'Update' : 'Set'}</button>${acct?.source === 'manual' ? '<button class="btn sm ghost" type="button" data-action="acct-value-clear">Use Kite</button>' : ''}</form>
-    <div class="hint">${acct?.source === 'kite' ? `Stocks ${rs0(acct.parts.stocks)} · MF ${rs0(acct.parts.mf)} · cash ${rs0(acct.parts.cash)}. Type a figure to override.` : acct ? `Entered ${fmtDate(acct.date)}. Connect Kite to fill it automatically.` : 'Connect Kite, or type the total from Kite/Console (holdings + mutual funds + cash).'}</div></div>`;
+    <div class="hint">${acct?.source === 'kite' ? `Stocks, ETFs & SGBs ${rs0(acct.parts.stocks)} + cash ${rs0(acct.parts.cash)}.${acct.parts.mf ? ` Mutual funds (${rs0(acct.parts.mf)}) are left out — SIPs paid from your bank never pass through the ledger, so their cost isn't known here.` : ''} Type a figure to override.` : acct ? `Entered ${fmtDate(acct.date)}. Connect Kite to fill it automatically.` : 'Connect Kite, or type the value of your stock holdings + cash from Kite (leave mutual funds out).'}</div></div>`;
   return `<section class="card" style="margin-bottom:16px" id="wealth-card">
     <header class="card-h"><h3>Am I beating an index fund?</h3><span class="sub">${esc(span)} · ${ledger.length} ledger entries</span></header>
     <div class="kpis k4" style="margin-bottom:12px">
-      <div class="kpi"><div class="k">Money put in (net)</div><div class="v mono">${rs0(putIn)}</div><div class="s">added − withdrawn</div></div>
+      <div class="kpi"><div class="k">Money put in (net)</div><div class="v mono">${rs0(putIn)}</div><div class="s">added − withdrawn − MF bought</div></div>
       <div class="kpi"><div class="k">Your gain</div><div class="v mono ${cls(you?.gain)}">${you ? money(you.gain, { sign: true, dp: 0 }) : '—'}</div><div class="s">${you?.xirr != null ? `<b class="${cls(you.xirr)}">${pct(you.xirr)}</b> a year (XIRR)` : 'needs value today'}</div></div>
       <div class="kpi" id="wealth-fund"><div class="k">Same money in Nifty 50 fund</div><div class="v mono">…</div><div class="s">loading prices</div></div>
       <div class="kpi" id="wealth-diff"><div class="k">You vs the fund</div><div class="v mono">—</div><div class="s"></div></div>
     </div>
     ${valueBox}
     <div id="wealth-chart" style="margin-top:12px"></div>
-    <p class="faint" style="font-size:12px;margin:8px 0 0">The fund line buys units of a Nifty 50 index fund (direct plan, after its costs) with every rupee you added, on the same day, and sells units whenever you withdrew. Your stocks, mutual funds, SGBs and cash are all part of "value today"; tax isn't included.</p>
+    <p class="faint" style="font-size:12px;margin:8px 0 0">The fund line buys units of a Nifty 50 index fund (direct plan, after its costs) with every rupee you added, on the same day, and sells units whenever you withdrew. This covers your stock account — stocks, ETFs, SGBs, F&O results and cash. Mutual funds are kept out on both sides (money spent on them through the ledger counts as taken out). Tax isn't included.</p>
   </section>`;
 }
 

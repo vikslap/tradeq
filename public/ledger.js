@@ -90,13 +90,19 @@ export function ledgerByYear(rows) {
   return Object.values(years).sort((a, b) => a.fy.localeCompare(b.fy));
 }
 
-/** Money you moved in (+) and out (−) of Zerodha, by date. */
+/**
+ * Money you moved in (+) and out (−) of the stock account, by date.
+ * Mutual funds bought through the ledger count as money leaving it (and
+ * redemptions as money coming back), because most MF money (SIPs paid from the
+ * bank) never passes through the ledger — so MFs are kept out of the comparison.
+ */
 export function cashFlows(rows) {
   const out = [];
   for (const r of rows) {
     const cat = categorise(r);
     if (cat === 'deposit') out.push({ date: r.date, amount: r.credit - r.debit });
     else if (cat === 'withdrawal') out.push({ date: r.date, amount: -(r.debit - r.credit) });
+    else if (cat === 'mf') out.push({ date: r.date, amount: -(r.debit - r.credit) });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date));
 }
