@@ -1,4 +1,5 @@
 import { getChartStyle } from '../chartstyle.js';
+import { maChips, maColorKey } from '../mastyle.js';
 import { tokenParam } from './kiteinst.js';
 import { tradeCharges, exitsOf, CHARGE_LABELS } from '../charges.js';
 import { metrics, isLT, reviewStatus, REVIEW_DAYS } from '../game.js';
@@ -31,7 +32,7 @@ export function chartToolbar(t, iv, def) {
   const cur = iv || def;
   return `<div class="chart-bar">
     <div class="seg sm-seg">${Object.entries(INTERVAL_LABEL).map(([v, l]) => `<label><input type="radio" name="iv-${t.id}" data-action-iv="${v}" ${cur === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
-    <div class="chips">${[20, 50, 200].map((n) => `<label><input type="checkbox" data-action-ema="${n}" ${S.emas.includes(n) ? 'checked' : ''}><span class="ema-chip ema-${n}">EMA ${n}</span></label>`).join('')}</div>
+    ${maChips(S.emas, 'data-action-ema')}
     ${drawToolbar()}
     <span style="flex:1"></span>
     <button class="btn ghost sm" data-action="chart-expand" data-id="${t.id}" title="Full screen">⛶ Expand</button>
@@ -43,7 +44,7 @@ export function chartToolbar(t, iv, def) {
 export async function mountDrawerChart(t) {
   const slot = $('#trade-chart'); if (!slot) return;
   const iv = S.chartIv[t.id];
-  const key = `${dataKey(t, iv)}|${theme()}|${S.emas.join(',')}|${getChartStyle()}`;
+  const key = `${dataKey(t, iv)}|${theme()}|${S.emas.join(',')}|${maColorKey()}|${getChartStyle()}`;
   if (S.cv?.tradeId === t.id && S.cv.key === key) { slot.replaceWith(S.cv.wrap); return; }
   if (S.cv) { S.cv.inst?.destroy(); S.cv = null; }
   const wrap = document.createElement('div'); wrap.id = 'trade-chart'; wrap.dataset.chartWrap = '1';
