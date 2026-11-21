@@ -404,6 +404,7 @@ form[data-horizon="LONGTERM"] span.lt-only { display: inline !important; }
 .ma-item { display: inline-flex; align-items: center; gap: 3px; }
 .ma-chips label span { padding: 4px 9px; font-size: 11.5px; }
 .ma-chips input[type=checkbox]:checked + span { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.chips input.ma-color { position: static; opacity: 1; pointer-events: auto; }
 .ma-color { width: 18px; height: 18px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: none; cursor: pointer; overflow: hidden; }
 .ma-color::-webkit-color-swatch-wrapper { padding: 0; }
 .ma-color::-webkit-color-swatch { border: none; border-radius: 50%; }
