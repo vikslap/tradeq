@@ -209,7 +209,7 @@ function gameShell() {
         <button class="btn" data-pa="next">▶ Next bar <span class="faint">(→)</span></button>
         <button class="btn" data-pa="skip">⏭ +10 bars</button>
         <button class="btn" data-pa="auto" id="pa-auto">⏯ Auto-play</button>
-        <button class="btn" data-pa="skip-chart" title="Don't like this chart? Load a new surprise chart">🎲 New chart</button>
+        <button class="btn" data-pa="skip-chart" title="Don't like the setup? Skip to a new chart — skipped charts don't count in your stats">🎲 Skip chart <span class="faint">(N)</span></button>
         <div class="seg sm-seg">${[1, 2, 5].map((x) => `<label><input type="radio" name="pa-speed" value="${x}" ${x === 1 ? 'checked' : ''}><span>${x}×</span></label>`).join('')}</div>
         <span style="flex:1"></span><span class="faint" id="pa-left"></span>
       </div></section>
@@ -278,11 +278,14 @@ async function skipChart() {
   if (!G) return;
   stopAuto(); clearTimeout(saveTimer);
   const s = G.session; const taken = G.trades.length > 0 || G.position;
-  if (taken && !window.confirm('You have paper trades on this chart. Save this session to your history and load a new chart?')) return;
+  // Skipping before you trade is free. Once you've traded, the result counts —
+  // otherwise skipping losers would make your stats look better than your trading.
+  if (taken && !window.confirm('You already traded this chart, so it counts towards your stats (otherwise skipping losers would flatter them).\n\nSave it (any open position closes at the last price) and load a new chart?')) return;
   if (taken) await finishSession({ review: false });
   else {
     G.draw?.destroy(); G = null;
     await ctx.api(`/api/practice/sessions/${s.id}`, { method: 'DELETE' }).catch(() => {});
+    ctx.toast('🎲 Chart skipped — not counted in your stats');
   }
   await newSurprise({ interval: s.interval, blind: s.blind, capital: s.capital, risk: s.risk }, s.symbol);
 }
@@ -607,6 +610,7 @@ export function practiceKey(e) {
   if (!G || !document.getElementById('pa-chart')) return false;
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return false;
   if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); return true; }
+  if ((e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.metaKey) { e.preventDefault(); skipChart(); return true; }
   return false;
 }
 
