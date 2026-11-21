@@ -251,3 +251,19 @@ How it decides:
 - **F&O:** rounded down to whole lots. Bought options are sized on losing the whole premium.
 - **Holding overnight:** shows what a 5% gap past your stop would cost.
 - **Log this trade** opens the new-trade form already filled in.
+
+## Market context in Practice: relative strength and breadth
+
+Every replay shows two extra panes under the price, revealed bar by bar like the candles:
+
+- **RS vs Nifty 50:** the stock divided by the Nifty 50, scaled to 100. A rising line means it's beating the index. Above the chart: the stock's % move vs the Nifty's over the last 20 bars, and whether RS is at a 50-bar high or low. Blind mode only ever shows the ratio, never the index level or dates.
+- **Breadth:**
+  - **Daily charts:** Nifty 500 advancers minus decliners for each day, plus the day's ↑/↓ count and the % of stocks above their 50- and 200-day averages.
+  - **Intraday charts:** the *previous* day's Nifty 500 figures, so the replay day's closing breadth never gives the ending away. There's also an optional **Nifty 50 bar by bar** button (about 50 Kite requests, ~20 s the first time).
+
+The Nifty 500 history is built once, in **Settings → Market breadth**:
+
+- It needs Kite connected. Choose ~4½, ~10 or ~15 years; each takes about 3, 6 or 9 minutes.
+- After that every replay uses it instantly. Rebuild monthly to add recent days.
+- It uses **today's** index members, so older dates leave out stocks that have since left the index.
+- You can upload NSE's latest Nifty 500 CSV (niftyindices.com) to refresh the list.

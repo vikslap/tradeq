@@ -1,3 +1,4 @@
+import { rsLine, rsReadout, breadthOn, istDate } from './market.js';
 import { addPriceSeries } from './chartstyle.js';
 import { tokenParam } from './js/kiteinst.js';
 // 🎮 Practice — chart replay game on real Kite candles.
@@ -202,7 +203,8 @@ function gameShell() {
   return `<div class="pa-grid">
     <section class="card" style="padding:12px" data-chart-wrap><div class="row wrap" style="justify-content:space-between;margin-bottom:8px">
       <div class="row wrap"><b id="pa-title"></b><span class="pill" id="pa-iv"></span>${drawToolbar()}</div><span class="muted mono" id="pa-date"></span></div>
-      <div id="pa-chart" style="height:520px"></div>
+      <div id="pa-mkt" class="mkt-strip"></div>
+      <div id="pa-chart" style="height:600px"></div>
       <div class="row wrap" style="margin-top:10px;gap:8px">
         <button class="btn" data-pa="next">▶ Next bar <span class="faint">(→)</span></button>
         <button class="btn" data-pa="skip">⏭ +10 bars</button>
@@ -224,6 +226,7 @@ export function mountPractice() {
   const form = document.getElementById('pa-setup');
   if (form) bindSetup(form);
   if (G && G.session.status === 'active' && document.getElementById('pa-chart')) { buildChart(); paint(); }
+  if (!ctx.S().breadth) import('./js/breadth.js').then((m) => m.loadBreadth()).then(() => { if (G && G.session.status === 'active' && document.getElementById('pa-chart')) { buildChart(); paint(); } });
 }
 
 function bindSetup(form) {
@@ -321,10 +324,19 @@ function buildChart() {
   G.markers = createSeriesMarkers(G.series, []);
   G.lines = [];
   G.C = C;
+  // Market context panes: relative strength vs Nifty 50, then breadth.
+  G.rsAll = G.data.bench?.length ? rsLine(G.data.candles, G.data.bench) : null;
+  G.rsS = G.rsAll ? G.chart.addSeries(LineSeries, { color: C.accent, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: 'RS', priceFormat: { type: 'price', precision: 1, minMove: 0.1 } }, 1) : null;
+  G.brAll = breadthBars();
+  G.brS = G.brAll ? G.chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, title: G.brAll.label, priceFormat: { type: 'price', precision: 0, minMove: 1 } }, G.rsS ? 2 : 1) : null;
+  const panes = G.chart.panes();
+  if (panes.length > 1) { panes[0].setStretchFactor(6); panes[1].setStretchFactor(1.3); if (panes[2]) panes[2].setStretchFactor(1); }
   const vis = G.data.candles.slice(0, G.cursor + 1);
   G.series.setData(vis.map(bar));
   G.vol.setData(vis.map(volBar));
   for (const e of G.ema) e.s.setData(emaData(vis, e.n));
+  if (G.rsS) G.rsS.setData(vis.map((c, i) => (G.rsAll[i] != null ? { time: toTime(c[0], G.data.interval), value: G.rsAll[i] } : { time: toTime(c[0], G.data.interval) })));
+  if (G.brS) G.brS.setData(vis.map((c, i) => brPoint(c, i)));
   G.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, vis.length - 120), to: vis.length + 12 });
   el.style.position = 'relative';
   G.draw = attachDrawings({ chart: G.chart, series: G.series, host: el, key: `pa:${G.session.id}`,
@@ -391,6 +403,8 @@ function next(n = 1) {
     G.pendingExit = false;
     G.position = position;
     G.series.update(bar(c)); G.vol.update(volBar(c));
+    if (G.rsS && G.rsAll[G.cursor] != null) G.rsS.update({ time: toTime(c[0], G.data.interval), value: G.rsAll[G.cursor] });
+    if (G.brS) G.brS.update(brPoint(c, G.cursor));
     const vis = G.data.candles.slice(0, G.cursor + 1);
     for (const e of G.ema) { const d = emaData(vis.slice(-Math.max(e.n * 3, 60)), e.n).at(-1); if (d.value != null) e.s.update(d); }
     if (closed) {
@@ -451,6 +465,7 @@ function paint() {
   document.getElementById('pa-iv').textContent = IV_LABEL[iv];
   document.getElementById('pa-date').textContent = blind ? `Bar ${G.cursor - G.session.startIndex + 1}` : c ? fmtBar(c[0], iv) : '';
   document.getElementById('pa-left').textContent = `${G.data.candles.length - 1 - G.cursor} bars left`;
+  paintMarket(blind);
   const realised = G.trades.reduce((a, t) => a + (tradeResult(t).pnl || 0), 0);
   const p = G.position;
   const unreal = p ? (c[4] - p.entryPrice) * dirOf(p.side) * p.qty : 0;
@@ -636,3 +651,55 @@ function openReview(s, data) {
 
 // Candles ↔ bars: redraw the live replay chart in the new style.
 if (typeof window !== 'undefined') window.addEventListener('tq:chartstyle', () => { if (G && G.session.status === 'active' && document.getElementById('pa-chart')) { buildChart(); paint(); } });
+
+// ---------- market context: relative strength + breadth ----------
+const pctTxt = (v) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
+
+/** Per-bar breadth values for the histogram pane: Nifty 500 daily, or Nifty 50 bar by bar once loaded. */
+function breadthBars() {
+  const iv = G.data.interval;
+  if (iv !== 'day' && G.n50) return { label: 'N50 net', at: (c) => { const x = G.n50.get(c[0]); return x && x.n ? x.adv - x.dec : null; } };
+  const b = ctx.S().breadth;
+  if (iv === 'day' && b?.dates?.length) return { label: 'N500 net', at: (c) => { const x = breadthOn(b, istDate(c[0])); return x ? x.adv - x.dec : null; } };
+  return null;
+}
+function brPoint(c) {
+  const t = toTime(c[0], G.data.interval);
+  const v = G.brAll?.at(c);
+  return v == null ? { time: t } : { time: t, value: v, color: v >= 0 ? 'rgba(34,197,94,.55)' : 'rgba(244,80,107,.55)' };
+}
+
+function paintMarket(blind) {
+  const el = document.getElementById('pa-mkt'); if (!el) return;
+  const c = G.data.candles[G.cursor]; if (!c) { el.innerHTML = ''; return; }
+  const parts = [];
+  const rs = G.data.bench?.length ? rsReadout(G.data.candles, G.data.bench, G.cursor, 20) : null;
+  if (rs) {
+    const tag = rs.atHigh ? ' · <b class="pos">RS at 50-bar high</b>' : rs.atLow ? ' · <b class="neg">RS at 50-bar low</b>' : '';
+    parts.push(`<span title="Relative strength: the stock's move vs the Nifty 50 over the last ${rs.bars} bars">💪 RS vs Nifty 50 (${rs.bars} bars): stock <b class="${rs.stockPct >= 0 ? 'pos' : 'neg'}">${pctTxt(rs.stockPct)}</b> · Nifty <b>${pctTxt(rs.benchPct)}</b> → <b class="${rs.edge >= 0 ? 'pos' : 'neg'}">${rs.edge >= 0 ? 'outperforming' : 'underperforming'}</b>${tag}</span>`);
+  } else parts.push('<span class="faint">💪 RS: Nifty 50 data unavailable for this chart</span>');
+  const b = ctx.S().breadth; const iv = G.data.interval;
+  if (iv !== 'day' && G.n50) {
+    const x = G.n50.get(c[0]);
+    if (x?.n) parts.push(`<span>📊 Nifty 50 now: <b class="pos">${x.adv}↑</b> / <b class="neg">${x.dec}↓</b> of ${x.n}</span>`);
+  }
+  if (b?.dates?.length) {
+    const x = breadthOn(b, istDate(c[0]), { before: iv !== 'day' });
+    if (x) parts.push(`<span title="${iv === 'day' ? 'This day' : 'The previous trading day'} across the Nifty 500">📊 Nifty 500${iv === 'day' ? '' : ' (prev. day)'}${blind ? '' : ` ${fmtBar(Date.parse(x.date), 'day').replace(/^\w+, /, '')}`}: <b class="pos">${x.adv}↑</b> / <b class="neg">${x.dec}↓</b> · ${x.pct50 != null ? `${Math.round(x.pct50 * 100)}% > 50-DMA` : ''}${x.pct200 != null ? ` · ${Math.round(x.pct200 * 100)}% > 200-DMA` : ''}</span>`);
+    else parts.push('<span class="faint">📊 No Nifty 500 breadth for this date — build more years in Settings</span>');
+  } else parts.push(`<span class="faint">📊 Breadth: build it once in <a href="#/settings">Settings → Market breadth</a></span>`);
+  if (iv !== 'day' && !G.n50 && ctx.S().kite.connected) parts.push(`<button class="btn sm ghost" data-pa="n50">Load Nifty 50 breadth bar by bar (~20 s)</button>`);
+  el.innerHTML = parts.join('');
+}
+
+async function loadN50(btn) {
+  if (!G) return;
+  btn.disabled = true;
+  try {
+    const times = G.data.candles.map((c) => c[0]);
+    const { nifty50Intraday } = await import('./js/breadth.js');
+    G.n50 = await nifty50Intraday(G.data.interval, times, (d, n) => { btn.textContent = `Loading Nifty 50… ${d}/${n}`; });
+    buildChart(); paint();
+  } catch (e) { btn.disabled = false; btn.textContent = 'Load Nifty 50 breadth bar by bar'; ctx.toast(ctx.esc(e.message), 'err'); }
+}
+if (typeof document !== 'undefined') document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-pa="n50"]'); if (b) loadN50(b); });

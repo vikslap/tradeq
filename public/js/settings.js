@@ -1,3 +1,4 @@
+import { breadthCard } from './breadth-ui.js';
 import { $, esc, num, pct, fmtDT } from './util.js';
 import { S, api, reload } from './state.js';
 import { confirmBox, toast } from './ui.js';
@@ -55,6 +56,7 @@ export function pageSettings() {
       ${S.installPrompt ? '<button class="btn primary" data-action="install-app">📲 Install TradeQuest</button>' : ''}
       <div class="faint" style="font-size:12.5px;margin-top:8px;line-height:1.6"><b>Android (Chrome):</b> open this site → <b>⋮</b> menu → <b>Install app</b> (or <b>Add to Home screen</b> → <b>Install</b>).<br><b>iPhone (Safari):</b> <b>Share</b> → <b>Add to Home Screen</b>.<br>${location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname) ? '' : 'Installing needs the hosted (https://) version.'}</div>`}
     </section>
+    ${breadthCard()}
     <section class="card"><header class="card-h"><h3>Renamed stocks</h3><span class="sub">e.g. ACRYSIL → CARYSIL</span></header>
       <p class="muted" style="margin-top:0">When a company changes its NSE/BSE symbol, rename it here. Your trades switch to the new symbol (so live prices work), and future tradebook imports treat the old symbol as the new one, so old buys pair up with new sells.</p>
       <form class="row wrap" id="rename-form" autocomplete="off" style="gap:8px">

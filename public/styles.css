@@ -537,3 +537,9 @@ tr.sel-row td { background: var(--accent-soft); }
   .fab { display: grid; place-items: center; position: fixed; right: 16px; bottom: calc(78px + env(safe-area-inset-bottom)); z-index: 35; width: 54px; height: 54px; border-radius: 50%; font-size: 24px; text-decoration: none; background: var(--accent); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
   .fab[hidden] { display: none; }
 }
+
+.bar { height: 8px; border-radius: 6px; background: var(--bg-2); overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+
+.mkt-strip { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 12.5px; margin: 0 0 8px; color: var(--muted); }
+.mkt-strip b { font-weight: 650; }

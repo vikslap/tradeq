@@ -189,7 +189,7 @@ export default {
         if (!hit) return json({ error: 'Unknown API route' }, 404);
         const out = hit.result;
         if (out?.redirect) return Response.redirect(new URL(out.redirect, url.origin).toString(), 302);
-        if (out?.response) return new Response(out.response.body, { status: out.response.status, headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'private, max-age=3600' } });
+        if (out?.response) return new Response(out.response.body, { status: out.response.status, headers: { 'Content-Type': out.response.headers.get('content-type') || 'text/plain; charset=utf-8', 'Cache-Control': 'private, max-age=3600' } });
         if (out?.json !== undefined && out.headers) return json(out.json, 200, out.headers);
         return json(out);
       });

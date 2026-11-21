@@ -1,3 +1,4 @@
+import { breadthActions, mountBreadthCard } from './breadth-ui.js';
 import { pageSizer, mountSizer } from './sizer.js';
 import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
 import { computeGame, weekStart, isTrading, HORIZON_LABEL } from '../game.js';
@@ -39,6 +40,7 @@ export function render() {
   if (page === 'practice') mountPractice();
   if (page === 'insights') mountWealth();
   if (page === 'size') mountSizer();
+  if (page === 'settings') mountBreadthCard();
   const fab = $('#fab-size'); if (fab) fab.hidden = page === 'size';
   if (page === 'settings') bindSettings();
   if (page === 'review') bindReview();
@@ -109,6 +111,7 @@ export const actions = {
     try { await api('/api/ledger', { method: 'DELETE' }); await reload(); } catch (e) { toast(esc(e.message), 'err'); }
   },
   'acct-value-clear': async () => { try { await api('/api/settings', { method: 'PUT', body: { accountValue: null } }); await reload(); } catch (e) { toast(esc(e.message), 'err'); } },
+  ...breadthActions,
   'install-app': async () => {
     const p = S.installPrompt; if (!p) return;
     p.prompt();
@@ -265,7 +268,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => navigato
 
 export async function boot() {
   bindGlobal();
-  initPractice({ api, state: () => S.state, kite: () => S.kite, toast, esc, reload, openModal, closeModal });
+  initPractice({ api, S: () => S, state: () => S.state, kite: () => S.kite, toast, esc, reload, openModal, closeModal });
   try {
     await Promise.all([loadKite(), (async () => { S.state = await api('/api/state'); })()]);
   } catch (e) {

@@ -1,0 +1,104 @@
+// Market context for practice replays: relative strength against the Nifty 50 and
+// market breadth (Nifty 500 daily, Nifty 50 bar by bar). Pure functions — shared by
+// the browser and the tests. Candles are [ms, open, high, low, close, volume].
+
+const IST = 330 * 60000;
+export const istDate = (ms) => new Date(ms + IST).toISOString().slice(0, 10);
+export const NIFTY50_TOKEN = 256265;
+
+/** Bench close for each stock candle (same bar time, or the latest bench bar before it). */
+export function alignBench(candles, bench) {
+  const out = new Array(candles.length).fill(null);
+  if (!bench?.length) return out;
+  let j = 0;
+  for (let i = 0; i < candles.length; i++) {
+    while (j + 1 < bench.length && bench[j + 1][0] <= candles[i][0]) j++;
+    if (bench[j][0] <= candles[i][0]) out[i] = bench[j][4];
+  }
+  return out;
+}
+
+/** Relative-strength line: (stock ÷ Nifty), scaled to 100 at the first bar. */
+export function rsLine(candles, bench) {
+  const b = alignBench(candles, bench);
+  const first = candles.findIndex((c, i) => b[i]);
+  if (first < 0) return candles.map(() => null);
+  const base = candles[first][4] / b[first];
+  return candles.map((c, i) => (b[i] ? (c[4] / b[i] / base) * 100 : null));
+}
+
+/** At bar `i`: stock vs Nifty % change over `n` bars, and whether RS is at a 50-bar high. */
+export function rsReadout(candles, bench, i, n = 20) {
+  if (!bench?.length || i < 1) return null;
+  const b = alignBench(candles, bench);
+  const rs = rsLine(candles, bench);
+  const k = Math.max(0, i - n);
+  if (!b[i] || !b[k]) return null;
+  const stockPct = candles[i][4] / candles[k][4] - 1;
+  const benchPct = b[i] / b[k] - 1;
+  const win = rs.slice(Math.max(0, i - 49), i + 1).filter((v) => v != null);
+  const atHigh = win.length >= 20 && rs[i] >= Math.max(...win) - 1e-9;
+  const atLow = win.length >= 20 && rs[i] <= Math.min(...win) + 1e-9;
+  return { bars: i - k, stockPct, benchPct, edge: stockPct - benchPct, atHigh, atLow };
+}
+
+// ---------- daily breadth (built once from all Nifty 500 members) ----------
+
+/** Add one stock's daily closes ([['YYYY-MM-DD', close], …], oldest first) to the per-day tallies. */
+export function addStockToBreadth(days, closes) {
+  let sum50 = 0; let sum200 = 0;
+  for (let i = 0; i < closes.length; i++) {
+    const [d, c] = closes[i];
+    sum50 += c; sum200 += c;
+    if (i >= 50) sum50 -= closes[i - 50][1];
+    if (i >= 200) sum200 -= closes[i - 200][1];
+    const x = (days[d] ||= [0, 0, 0, 0, 0, 0, 0]); // adv, dec, unch, above50, n50, above200, n200
+    if (i > 0) { const p = closes[i - 1][1]; if (c > p) x[0]++; else if (c < p) x[1]++; else x[2]++; }
+    if (i >= 49) { x[4]++; if (c > sum50 / 50) x[3]++; }
+    if (i >= 199) { x[6]++; if (c > sum200 / 200) x[5]++; }
+  }
+  return days;
+}
+
+/** Turn the tallies into compact columns, oldest first. */
+export function finishBreadth(days, meta = {}) {
+  const dates = Object.keys(days).sort();
+  const col = (k) => dates.map((d) => days[d][k]);
+  return { ...meta, dates, adv: col(0), dec: col(1), unch: col(2), a50: col(3), n50: col(4), a200: col(5), n200: col(6) };
+}
+
+/** Breadth on `date` (or the last day before it when `before` is set). */
+export function breadthOn(b, date, { before = false } = {}) {
+  if (!b?.dates?.length) return null;
+  let lo = 0; let hi = b.dates.length - 1; let k = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (before ? b.dates[m] < date : b.dates[m] <= date) { k = m; lo = m + 1; } else hi = m - 1; }
+  if (k < 0) return null;
+  // Too far from the bar (outside the data) → nothing, rather than stale numbers.
+  if ((Date.parse(date) - Date.parse(b.dates[k])) / 86400000 > 7) return null;
+  return { date: b.dates[k], adv: b.adv[k], dec: b.dec[k], unch: b.unch[k], pct50: b.n50[k] ? b.a50[k] / b.n50[k] : null, pct200: b.n200[k] ? b.a200[k] / b.n200[k] : null, n: b.adv[k] + b.dec[k] + b.unch[k] };
+}
+
+// ---------- intraday breadth, bar by bar (Nifty 50, loaded on request) ----------
+
+/**
+ * For each bar time: how many stocks are above / below their previous day's close.
+ * stocks: { SYMBOL: candles[] } (same interval). Returns Map(ms → { adv, dec, n }).
+ */
+export function intradayBreadth(stocks, times) {
+  const out = new Map(times.map((t) => [t, { adv: 0, dec: 0, n: 0 }]));
+  for (const candles of Object.values(stocks)) {
+    if (!candles?.length) continue;
+    const prevClose = {}; let lastDay = null; let lastClose = null;
+    for (const c of candles) { const d = istDate(c[0]); if (d !== lastDay) { if (lastDay) prevClose[d] = lastClose; lastDay = d; } lastClose = c[4]; }
+    let j = 0;
+    for (const t of times) {
+      while (j + 1 < candles.length && candles[j + 1][0] <= t) j++;
+      const c = candles[j]; if (!c || c[0] > t) continue;
+      const d = istDate(c[0]); if (d !== istDate(t)) continue; // no bar yet today for this stock
+      const p = prevClose[d]; if (p == null) continue;
+      const x = out.get(t); x.n++;
+      if (c[4] > p) x.adv++; else if (c[4] < p) x.dec++;
+    }
+  }
+  return out;
+}
