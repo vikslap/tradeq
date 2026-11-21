@@ -1,3 +1,4 @@
+import { NIFTY500 } from './data/indices.js';
 import { rsLine, rsReadout, breadthOn, istDate } from './market.js';
 import { addPriceSeries } from './chartstyle.js';
 import { maColor, maChips, practiceMas, setPracticeMas, MA_PERIODS } from './mastyle.js';
@@ -10,11 +11,11 @@ import { createChart, CandlestickSeries, HistogramSeries, LineSeries, LineStyle,
 // ---------------------------------------------------------------------------
 // Pure engine (also used by tests)
 // ---------------------------------------------------------------------------
-export const SURPRISE = [
-  'RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'ITC', 'LT', 'AXISBANK', 'KOTAKBANK', 'BHARTIARTL', 'TATAMOTORS',
-  'MARUTI', 'SUNPHARMA', 'TITAN', 'BAJFINANCE', 'HCLTECH', 'WIPRO', 'ASIANPAINT', 'ULTRACEMCO', 'NTPC', 'POWERGRID', 'TATASTEEL',
-  'JSWSTEEL', 'HINDUNILVR', 'NESTLEIND', 'M&M', 'DIXON', 'TRENT', 'HAL', 'BEL', 'TATAPOWER', 'DLF', 'POLYCAB', 'PERSISTENT',
-];
+// Surprise charts come from the whole Nifty 500 (large, mid and small caps), so replays
+// include laggards and sideways stocks, not just today's best-known winners.
+export const SURPRISE = NIFTY500;
+const surprisePool = () => { const l = ctx?.S?.()?.state?.settings?.indexLists?.nifty500; return l?.length ? l : SURPRISE; };
+const pick = (avoid) => { const pool = surprisePool(); let s; do s = pool[Math.floor(Math.random() * pool.length)]; while (s === avoid && pool.length > 1); return s; };
 
 /** Random weekday start date with enough future data for the chosen interval. */
 export function randomStart(interval, now = Date.now(), rnd = Math.random) {
@@ -263,9 +264,9 @@ async function newSurprise(opts, avoid) {
   const root = document.getElementById('pa-root');
   if (root) root.innerHTML = '<div class="card"><div class="chart-loading" style="height:520px">🎲 Loading a new chart…</div></div>';
   let last = null;
-  for (let i = 0; i < 4; i++) {
-    let symbol;
-    do symbol = SURPRISE[Math.floor(Math.random() * SURPRISE.length)]; while (symbol === avoid);
+  // Recent listings have no history for older dates, so a pick can fail — just try another.
+  for (let i = 0; i < 8; i++) {
+    const symbol = pick(avoid);
     try {
       await startSession({ symbol, exchange: 'NSE', interval: opts.interval, start: randomStart(opts.interval), blind: opts.blind, capital: opts.capital, risk: opts.risk }, { rethrow: true });
       return;
@@ -585,7 +586,7 @@ export function practiceAction(name, el) {
   switch (name) {
     case 'surprise': {
       const f = document.getElementById('pa-setup'); if (!f) return;
-      f.symbol.value = SURPRISE[Math.floor(Math.random() * SURPRISE.length)]; f.exchange.value = 'NSE'; f.start.value = ''; f.blind.checked = true;
+      f.symbol.value = pick(); f.exchange.value = 'NSE'; f.start.value = ''; f.blind.checked = true;
       f.requestSubmit(); return;
     }
     case 'next': return G && next();

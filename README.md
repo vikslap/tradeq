@@ -267,3 +267,5 @@ The Nifty 500 history is built once, in **Settings → Market breadth**:
 - After that every replay uses it instantly. Rebuild monthly to add recent days.
 - It uses **today's** index members, so older dates leave out stocks that have since left the index.
 - You can upload NSE's latest Nifty 500 CSV (niftyindices.com) to refresh the list.
+
+**Surprise charts** pick a random stock from the whole **Nifty 500** (large, mid and small caps; your uploaded list if you've added one) and a random start date. That gives hundreds of thousands of possible replays. The list is today's members, so very old dates still lean slightly towards stocks that did well enough to stay in the index.
