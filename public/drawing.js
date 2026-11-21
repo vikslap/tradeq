@@ -1,3 +1,4 @@
+import { styleButton } from './chartstyle.js';
 // Drawing tools for Lightweight Charts: trendline, horizontal line and ruler.
 // Drawings are anchored by (time, price), so they stay put when you change candle
 // size, and are saved in this browser per chart key (a trade or a practice session).
@@ -95,7 +96,7 @@ export function attachDrawings({ chart, series, host, times, candles = () => [],
   const el = (name, attrs) => { const e = document.createElementNS(NS, name); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
 
   function redraw() {
-    const W = host.clientWidth; const priceAxis = chart.priceScale('right').width() || 60; const plotW = W - priceAxis;
+    const W = host.clientWidth; const priceAxis = chart.priceScale('right').width() || 60; const plotW = Math.max(0, W - priceAxis);
     const C = { accent: css('--accent') || '#8b6cff', gold: css('--gold') || '#fbbf24', green: css('--green'), red: css('--red'), text: css('--text'), panel: css('--panel') };
     svg.replaceChildren();
     const clip = el('clipPath', { id: `clip-${key.replace(/[^a-z0-9]/gi, '')}` }); clip.appendChild(el('rect', { x: 0, y: 0, width: plotW, height: host.clientHeight }));
@@ -245,6 +246,7 @@ export function handleDrawClick(btn) {
 
 /** Toolbar buttons; wire clicks with data-draw="trend|hline|ruler|clear". */
 export const drawToolbar = (active = 'none') => `<span class="draw-bar">
+  ${styleButton()}
   <button type="button" class="btn ghost sm ${active === 'trend' ? 'on' : ''}" data-draw="trend" title="Trendline — click two points (snaps to candles)">╱ Trend</button>
   <button type="button" class="btn ghost sm ${active === 'hline' ? 'on' : ''}" data-draw="hline" title="Horizontal line — click once">─ Level</button>
   <button type="button" class="btn ghost sm ${active === 'ruler' ? 'on' : ''}" data-draw="ruler" title="Ruler — click two points (or Shift+click)">📏 Ruler</button>

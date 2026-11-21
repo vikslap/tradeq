@@ -1,3 +1,4 @@
+import { addPriceSeries } from './chartstyle.js';
 // Interactive trade chart built on TradingView Lightweight Charts (Apache-2.0, vendored).
 import { attachDrawings } from './drawing.js';
 import { createChart, CandlestickSeries, HistogramSeries, LineSeries, BaselineSeries, LineStyle, LineType, CrosshairMode, createSeriesMarkers } from './vendor/lightweight-charts.mjs';
@@ -78,8 +79,8 @@ export function mountTradeChart(container, t, { candles, interval }, opts = {}) 
 
   // Keep entry, stop, target and exit in view, not just the candles.
   const levels = [t.entryPrice, t.initialStop, t.stopLoss, t.target, t.status === 'CLOSED' ? t.exitPrice : null].filter((v) => v != null);
-  const price = chart.addSeries(CandlestickSeries, {
-    upColor: C.green, downColor: C.red, borderVisible: false, wickUpColor: C.green, wickDownColor: C.red, priceLineVisible: false,
+  const price = addPriceSeries(chart, C, {
+    priceLineVisible: false,
     autoscaleInfoProvider: (original) => {
       const r = original();
       if (!r || !levels.length) return r;

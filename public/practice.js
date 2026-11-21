@@ -1,3 +1,4 @@
+import { addPriceSeries } from './chartstyle.js';
 import { tokenParam } from './js/kiteinst.js';
 // 🎮 Practice — chart replay game on real Kite candles.
 // Paper trades live in their own record (state.practice) and never touch the journal.
@@ -313,7 +314,7 @@ function buildChart() {
     rightPriceScale: { borderColor: C.border, scaleMargins: { top: 0.08, bottom: 0.2 } },
     timeScale: { borderColor: C.border, visible: !blind, timeVisible: G.data.interval !== 'day', rightOffset: 12 },
   });
-  G.series = G.chart.addSeries(CandlestickSeries, { upColor: C.green, downColor: C.red, borderVisible: false, wickUpColor: C.green, wickDownColor: C.red });
+  G.series = addPriceSeries(G.chart, C);
   G.vol = G.chart.addSeries(HistogramSeries, { priceScaleId: 'v', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
   G.chart.priceScale('v').applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
   G.ema = [20, 50].map((n, i) => ({ n, s: G.chart.addSeries(LineSeries, { color: i ? '#38bdf8' : '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }) }));
@@ -609,8 +610,12 @@ function openReview(s, data) {
     </div></div>`, { dismissable: true });
   // Full chart including what happened after you stopped.
   const C = { text: css('--muted'), border: css('--border'), green: css('--green'), red: css('--red'), accent: css('--accent'), gold: css('--gold') };
-  const chart = createChart(el.querySelector('#pa-review-chart'), { autoSize: true, layout: { background: { color: 'transparent' }, textColor: C.text, fontSize: 11, attributionLogo: true }, grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(128,128,128,.08)' } }, timeScale: { borderColor: C.border, timeVisible: s.interval !== 'day' }, rightPriceScale: { borderColor: C.border } });
-  const ser = chart.addSeries(CandlestickSeries, { upColor: C.green, downColor: C.red, borderVisible: false, wickUpColor: C.green, wickDownColor: C.red });
+  const host = el.querySelector('#pa-review-chart');
+  let chart; let drawn;
+  const drawReview = () => {
+  drawn?.destroy?.(); chart?.remove();
+  chart = createChart(host, { autoSize: true, layout: { background: { color: 'transparent' }, textColor: C.text, fontSize: 11, attributionLogo: true }, grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(128,128,128,.08)' } }, timeScale: { borderColor: C.border, timeVisible: s.interval !== 'day' }, rightPriceScale: { borderColor: C.border } });
+  const ser = addPriceSeries(chart, C);
   ser.setData(data.candles.map((c) => ({ time: toTime(c[0], s.interval), open: c[1], high: c[2], low: c[3], close: c[4] })));
   const marks = [];
   if (first) marks.push({ time: toTime(first[0], s.interval), position: 'aboveBar', color: C.text, shape: 'square', text: 'Replay start' });
@@ -622,5 +627,12 @@ function openReview(s, data) {
   marks.sort((a, b) => (a.time > b.time ? 1 : a.time < b.time ? -1 : 0));
   createSeriesMarkers(ser, marks);
   chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, s.startIndex - 60), to: Math.min(data.candles.length, (s.cursor ?? s.startIndex) + 40) });
-  attachDrawings({ chart, series: ser, host: el.querySelector('#pa-review-chart'), key: `pa:${s.id}`, times: () => data.candles.map((c) => c[0]), candles: () => data.candles });
+  drawn = attachDrawings({ chart, series: ser, host, key: `pa:${s.id}`, times: () => data.candles.map((c) => c[0]), candles: () => data.candles });
+  };
+  drawReview();
+  const onStyle = () => { if (!document.body.contains(host)) return window.removeEventListener('tq:chartstyle', onStyle); drawReview(); };
+  window.addEventListener('tq:chartstyle', onStyle);
 }
+
+// Candles ↔ bars: redraw the live replay chart in the new style.
+if (typeof window !== 'undefined') window.addEventListener('tq:chartstyle', () => { if (G && G.session.status === 'active' && document.getElementById('pa-chart')) { buildChart(); paint(); } });

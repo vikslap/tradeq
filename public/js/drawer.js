@@ -1,3 +1,4 @@
+import { getChartStyle } from '../chartstyle.js';
 import { tokenParam } from './kiteinst.js';
 import { tradeCharges, exitsOf, CHARGE_LABELS } from '../charges.js';
 import { metrics, isLT, reviewStatus, REVIEW_DAYS } from '../game.js';
@@ -42,7 +43,7 @@ export function chartToolbar(t, iv, def) {
 export async function mountDrawerChart(t) {
   const slot = $('#trade-chart'); if (!slot) return;
   const iv = S.chartIv[t.id];
-  const key = `${dataKey(t, iv)}|${theme()}|${S.emas.join(',')}`;
+  const key = `${dataKey(t, iv)}|${theme()}|${S.emas.join(',')}|${getChartStyle()}`;
   if (S.cv?.tradeId === t.id && S.cv.key === key) { slot.replaceWith(S.cv.wrap); return; }
   if (S.cv) { S.cv.inst?.destroy(); S.cv = null; }
   const wrap = document.createElement('div'); wrap.id = 'trade-chart'; wrap.dataset.chartWrap = '1';
@@ -72,7 +73,7 @@ export async function openBigChart(t) {
     const data = await chartData(t, iv);
     const box = $('#big-chart', el); if (!box) return;
     box.innerHTML = `${chartToolbar(t, iv, data.interval).replace('data-action="chart-expand"', 'data-action="close-modal"').replace('⛶ Expand', '✕ Close')}<div class="chart-host"></div>`;
-    S.big = { tradeId: t.id, inst: mountTradeChart($('.chart-host', box), t, data, { height: Math.round(window.innerHeight * 0.72), emas: S.emas, drawKey: `trade:${t.id}` }) };
+    S.big = { tradeId: t.id, data, inst: mountTradeChart($('.chart-host', box), t, data, { height: Math.round(window.innerHeight * 0.72), emas: S.emas, drawKey: `trade:${t.id}` }) };
   } catch (e) { const box = $('#big-chart', el); if (box) box.innerHTML = `<div class="warn">${esc(e.message)}</div>`; }
 }
 
@@ -181,3 +182,13 @@ export function openThesisReview(t) {
   });
   setTimeout(() => form.note.focus(), 30);
 }
+
+// Candles ↔ bars: redraw the trade chart (and the full-screen one) in the new style.
+window.addEventListener('tq:chartstyle', () => {
+  if (S.drawerId) renderDrawer();
+  const box = document.getElementById('big-chart');
+  if (box && S.big?.data) {
+    const t = S.state.trades.find((x) => x.id === S.big.tradeId); const host = box.querySelector('.chart-host');
+    if (t && host) { S.big.inst?.destroy(); S.big.inst = mountTradeChart(host, t, S.big.data, { height: Math.round(window.innerHeight * 0.72), emas: S.emas, drawKey: `trade:${t.id}` }); }
+  }
+});
