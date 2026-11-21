@@ -1,7 +1,7 @@
 // TradeQuest service worker: makes the site installable as an app and lets the
 // app shell open even on a flaky connection. Your journal data (/api/*) is never
 // cached — it always comes live from the server.
-const CACHE = 'tq-shell-v1';
+const CACHE = 'tq-shell-v2';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/index.html', '/styles.css', '/js/main.js', '/manifest.json', '/icon-192.png'])).catch(() => {}));

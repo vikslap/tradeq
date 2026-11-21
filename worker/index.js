@@ -70,7 +70,13 @@ function chunk(items, size = 1_500_000) {
 let loaded = null; // { rev, snapshot: Map<id,{seq,body}> }
 let ready = null;
 let queue = Promise.resolve();
-const serial = (fn) => { const p = queue.then(fn, fn); queue = p.catch(() => {}); return p; };
+// One journal request at a time per isolate. A request that takes too long releases the
+// queue after 30 s so one stuck call (e.g. a slow upstream) can't block everything else.
+const serial = (fn) => {
+  const p = queue.then(fn, fn);
+  queue = Promise.race([p.catch(() => {}), new Promise((r) => setTimeout(r, 30000))]);
+  return p;
+};
 
 async function setup(db) {
   ready ||= db.batch(SCHEMA.map((q) => db.prepare(q))).catch((e) => { ready = null; throw e; });
@@ -157,6 +163,21 @@ export default {
 
       const db = env.DB;
       await setup(db);
+
+      // Kite pass-through requests don't touch the journal: answer them straight away,
+      // outside the journal queue (breadth building sends ~1,000 of these).
+      if (['/api/kite/raw-candles', '/api/kite/tokens'].includes(url.pathname) || url.pathname.startsWith('/api/kite/instruments/')) {
+        const row = await db.prepare("SELECT value FROM kv WHERE key = 'kite-session'").first();
+        const storage = { get: async () => (row ? JSON.parse(row.value) : null), put: async () => {}, del: (k) => db.prepare('DELETE FROM kv WHERE key = ?').bind(k).run() };
+        const kite = createKite({ apiKey: env.KITE_API_KEY, apiSecret: env.KITE_API_SECRET, storage, mock: /^(1|true|yes)$/i.test(env.KITE_MOCK || ''), clientSearch: true, getTrades: () => [] });
+        await kite.init();
+        const body0 = req.method === 'POST' ? await readBody(req) : {};
+        const hit = await createApi({ store, kite, cache: { get: async () => null, put: async () => {} }, hosted: true })({ method: req.method, pathname: url.pathname, url, body: async () => body0 });
+        const out = hit?.result;
+        if (out?.response) return new Response(out.response.body, { status: out.response.status, headers: { 'Content-Type': out.response.headers.get('content-type') || 'text/plain; charset=utf-8', 'Cache-Control': 'private, max-age=3600' } });
+        return json(out ?? { error: 'Unknown API route' }, out ? 200 : 404);
+      }
+
       const body = req.method === 'GET' || req.method === 'HEAD' ? null : await readBody(req);
 
       return await serial(async () => {
