@@ -1,5 +1,6 @@
 import { rsLine, rsReadout, breadthOn, istDate } from './market.js';
 import { addPriceSeries } from './chartstyle.js';
+import { maColor, maChips, practiceMas, setPracticeMas, MA_PERIODS } from './mastyle.js';
 import { tokenParam } from './js/kiteinst.js';
 // 🎮 Practice — chart replay game on real Kite candles.
 // Paper trades live in their own record (state.practice) and never touch the journal.
@@ -202,7 +203,7 @@ function historyHtml(sessions) {
 function gameShell() {
   return `<div class="pa-grid">
     <section class="card" style="padding:12px" data-chart-wrap><div class="row wrap" style="justify-content:space-between;margin-bottom:8px">
-      <div class="row wrap"><b id="pa-title"></b><span class="pill" id="pa-iv"></span>${drawToolbar()}</div><span class="muted mono" id="pa-date"></span></div>
+      <div class="row wrap"><b id="pa-title"></b><span class="pill" id="pa-iv"></span>${maChips(practiceMas(), 'data-pa-ema')}${drawToolbar()}</div><span class="muted mono" id="pa-date"></span></div>
       <div id="pa-mkt" class="mkt-strip"></div>
       <div id="pa-chart" style="height:600px"></div>
       <div class="row wrap" style="margin-top:10px;gap:8px">
@@ -323,7 +324,7 @@ function buildChart() {
   G.series = addPriceSeries(G.chart, C);
   G.vol = G.chart.addSeries(HistogramSeries, { priceScaleId: 'v', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
   G.chart.priceScale('v').applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
-  G.ema = [20, 50].map((n, i) => ({ n, s: G.chart.addSeries(LineSeries, { color: i ? '#38bdf8' : '#f59e0b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }) }));
+  G.ema = practiceMas().map((n) => ({ n, s: G.chart.addSeries(LineSeries, { color: maColor(n), lineWidth: n === 200 ? 2 : 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }) }));
   G.markers = createSeriesMarkers(G.series, []);
   G.lines = [];
   G.C = C;
@@ -347,12 +348,13 @@ function buildChart() {
 }
 const bar = (c) => ({ time: toTime(c[0], G.data.interval), open: c[1], high: c[2], low: c[3], close: c[4] });
 const volBar = (c) => ({ time: toTime(c[0], G.data.interval), value: c[5] || 0, color: c[4] >= c[1] ? 'rgba(34,197,94,.35)' : 'rgba(244,80,107,.35)' });
-function emaData(vis, n) {
+function emaData(vis, n) { return emaLine(vis, n, G.data.interval); }
+function emaLine(cs, n, iv) {
   const k = 2 / (n + 1); let prev = null;
-  return vis.map((c, i) => {
-    if (i < n - 1) return { time: toTime(c[0], G.data.interval) };
-    prev = prev == null ? vis.slice(0, n).reduce((a, x) => a + x[4], 0) / n : c[4] * k + prev * (1 - k);
-    return { time: toTime(c[0], G.data.interval), value: prev };
+  return cs.map((c, i) => {
+    if (i < n - 1) return { time: toTime(c[0], iv) };
+    prev = prev == null ? cs.slice(0, n).reduce((a, x) => a + x[4], 0) / n : c[4] * k + prev * (1 - k);
+    return { time: toTime(c[0], iv), value: prev };
   });
 }
 
@@ -636,6 +638,10 @@ function openReview(s, data) {
   chart = createChart(host, { autoSize: true, layout: { background: { color: 'transparent' }, textColor: C.text, fontSize: 11, attributionLogo: true }, grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(128,128,128,.08)' } }, timeScale: { borderColor: C.border, timeVisible: s.interval !== 'day' }, rightPriceScale: { borderColor: C.border } });
   const ser = addPriceSeries(chart, C);
   ser.setData(data.candles.map((c) => ({ time: toTime(c[0], s.interval), open: c[1], high: c[2], low: c[3], close: c[4] })));
+  for (const n of practiceMas()) {
+    const line = chart.addSeries(LineSeries, { color: maColor(n), lineWidth: n === 200 ? 2 : 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    line.setData(emaLine(data.candles, n, s.interval));
+  }
   const marks = [];
   if (first) marks.push({ time: toTime(first[0], s.interval), position: 'aboveBar', color: C.text, shape: 'square', text: 'Replay start' });
   for (const t of s.trades || []) {
@@ -653,7 +659,15 @@ function openReview(s, data) {
   window.addEventListener('tq:chartstyle', onStyle);
 }
 
-// Candles ↔ bars: redraw the live replay chart in the new style.
+// EMA 20 / 50 / 200 on or off in Practice.
+if (typeof document !== 'undefined') document.addEventListener('change', (e) => {
+  const n = +e.target.dataset?.paEma; if (!n) return;
+  const on = practiceMas();
+  setPracticeMas(MA_PERIODS.filter((x) => (x === n ? e.target.checked : on.includes(x))));
+  if (G && G.session.status === 'active' && document.getElementById('pa-chart')) { buildChart(); paint(); }
+});
+
+// Candles ↔ bars (and MA colours): redraw the live replay chart.
 if (typeof window !== 'undefined') window.addEventListener('tq:chartstyle', () => { if (G && G.session.status === 'active' && document.getElementById('pa-chart')) { buildChart(); paint(); } });
 
 // ---------- market context: relative strength + breadth ----------

@@ -1,4 +1,5 @@
 import { addPriceSeries } from './chartstyle.js';
+import { maColor } from './mastyle.js';
 // Interactive trade chart built on TradingView Lightweight Charts (Apache-2.0, vendored).
 import { attachDrawings } from './drawing.js';
 import { createChart, CandlestickSeries, HistogramSeries, LineSeries, BaselineSeries, LineStyle, LineType, CrosshairMode, createSeriesMarkers } from './vendor/lightweight-charts.mjs';
@@ -95,11 +96,10 @@ export function mountTradeChart(container, t, { candles, interval }, opts = {}) 
     vol.setData(data.map((d) => ({ time: d.time, value: d.volume, color: alpha(d.close >= d.open ? C.green : C.red, 0.35) })));
   }
 
-  const emaColors = { 20: '#f59e0b', 50: '#38bdf8', 200: '#a78bfa' };
   for (const n of opts.emas || []) {
     if (data.length < n) continue;
     const vals = ema(data.map((d) => d.close), n);
-    const s = chart.addSeries(LineSeries, { color: emaColors[n] || C.faint, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, title: `EMA ${n}` });
+    const s = chart.addSeries(LineSeries, { color: maColor(n), lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, title: `EMA ${n}` });
     s.setData(data.map((d, i) => (vals[i] == null ? { time: d.time } : { time: d.time, value: vals[i] })));
   }
 
