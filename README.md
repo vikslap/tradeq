@@ -236,3 +236,18 @@ The dashboard equity curve is now spaced by calendar time, so quiet years no lon
 ## Trade types
 
 The tradebook import types each trade by how long it was held: same day = Intraday, up to 20 days = Swing, over a year = Long-term, anything else = Positional. A one-time update applied this rule to trades imported before it existed; trades you typed yourself keep their type. To change several trades at once, tick them in the Journal and use **Set type…**.
+
+## 🧮 Position size calculator
+
+Find it in the sidebar, or tap the floating 🧮 button on a phone. Enter the entry and stop-loss, and optionally a target. You get:
+
+- how many shares (or whole lots) to buy, so that a stop-out costs at most your risk budget **including slippage and every Zerodha charge**
+- position value, loss at the stop, profit at the target after charges, reward:risk and the break-even price
+
+How it decides:
+
+- **Risk budget:** % of capital (Settings → *Risk per trade*, default 1%), never above your ₹ max risk per trade.
+- **Your rules:** max position % and total open risk across all open trades are applied, and the result says when one of them cut the size.
+- **F&O:** rounded down to whole lots. Bought options are sized on losing the whole premium.
+- **Holding overnight:** shows what a 5% gap past your stop would cost.
+- **Log this trade** opens the new-trade form already filled in.

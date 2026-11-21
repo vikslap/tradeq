@@ -1,3 +1,4 @@
+import { pageSizer, mountSizer } from './sizer.js';
 import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
 import { computeGame, weekStart, isTrading, HORIZON_LABEL } from '../game.js';
 import { computeStats } from '../stats.js';
@@ -32,11 +33,13 @@ export function render() {
   const { page } = route();
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === page));
   renderTop();
-  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, settings: pageSettings };
+  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, size: pageSizer, settings: pageSettings };
   $('#main').innerHTML = (pages[page] || pageDashboard)();
   mountEquity();
   if (page === 'practice') mountPractice();
   if (page === 'insights') mountWealth();
+  if (page === 'size') mountSizer();
+  const fab = $('#fab-size'); if (fab) fab.hidden = page === 'size';
   if (page === 'settings') bindSettings();
   if (page === 'review') bindReview();
   if (S.drawerId) renderDrawer();

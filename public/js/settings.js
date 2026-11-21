@@ -33,6 +33,7 @@ export function pageSettings() {
       <div class="field"><label>Display name</label><input class="input" name="displayName" value="${esc(s.displayName)}"></div>
       <div class="grid-2">
         <div class="field"><label>Trading capital (₹)</label><input class="input num" type="number" name="capital" value="${s.capital}" min="0"></div>
+        <div class="field"><label>Risk per trade (% of capital)</label><input class="input num" type="number" step="0.05" name="riskPctPerTrade" value="${s.riskPctPerTrade ?? 1}" min="0"><span class="hint">${s.capital ? `= ₹${Math.round(s.capital * (s.riskPctPerTrade ?? 1) / 100).toLocaleString('en-IN')} · used by the 🧮 calculator` : ''}</span></div>
         <div class="field"><label>Max risk per trade (₹)</label><input class="input num" type="number" name="maxRiskPerTrade" value="${s.maxRiskPerTrade}" min="0"><span class="hint">${s.capital ? pct(s.maxRiskPerTrade / s.capital, 2) + ' of capital' : ''}</span></div>
         <div class="field"><label>Max new trades per day</label><input class="input num" type="number" name="maxTradesPerDay" value="${s.maxTradesPerDay}" min="1"></div>
         <div class="field"><label>Revenge-trade window (minutes)</label><input class="input num" type="number" name="revengeWindowMins" value="${s.revengeWindowMins}" min="0"><span class="hint">New entry this soon after a loss = −15 XP</span></div>

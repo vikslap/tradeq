@@ -524,3 +524,16 @@ details.charges .stat-line { padding: 3px 0; font-size: 12px; }
 
 select.sm-select { width: auto; padding: 7px 30px 7px 12px; font-size: 13px; font-weight: 600; }
 tr.sel-row td { background: var(--accent-soft); }
+
+/* position size calculator */
+.sizer-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+#sizer-out { position: sticky; top: 84px; }
+.note.warn { background: rgba(245, 158, 11, .12); border-color: rgba(245, 158, 11, .35); }
+.fab { display: none; }
+@media (max-width: 760px) {
+  .sizer-grid { grid-template-columns: 1fr; }
+  #sizer-out { position: static; }
+  .desk-only { display: none !important; }
+  .fab { display: grid; place-items: center; position: fixed; right: 16px; bottom: calc(78px + env(safe-area-inset-bottom)); z-index: 35; width: 54px; height: 54px; border-radius: 50%; font-size: 24px; text-decoration: none; background: var(--accent); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+  .fab[hidden] { display: none; }
+}
