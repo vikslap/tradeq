@@ -208,10 +208,10 @@ function gameShell() {
       <div id="pa-mkt" class="mkt-strip"></div>
       <div id="pa-chart" style="height:600px"></div>
       <div class="row wrap" style="margin-top:10px;gap:8px">
-        <button class="btn" data-pa="next">▶ Next bar <span class="faint">(→)</span></button>
-        <button class="btn" data-pa="skip">⏭ +10 bars</button>
-        <button class="btn" data-pa="auto" id="pa-auto">⏯ Auto-play</button>
-        <button class="btn" data-pa="skip-chart" title="Don't like the setup? Skip to a new chart — skipped charts don't count in your stats">🎲 Skip chart <span class="faint">(N)</span></button>
+        <button class="btn" data-pa="next" title="Next bar — → , Space or D">▶ Next bar <kbd>→</kbd></button>
+        <button class="btn" data-pa="skip" title="10 bars — Shift + →">⏭ +10 bars <kbd>⇧→</kbd></button>
+        <button class="btn" data-pa="auto" id="pa-auto" title="Auto-play — P">⏯ Auto-play <kbd>P</kbd></button>
+        <button class="btn" data-pa="skip-chart" title="Don't like the setup? Skip to a new chart — skipped charts don't count in your stats">🎲 Skip chart <kbd>N</kbd></button>
         <div class="seg sm-seg">${[1, 2, 5].map((x) => `<label><input type="radio" name="pa-speed" value="${x}" ${x === 1 ? 'checked' : ''}><span>${x}×</span></label>`).join('')}</div>
         <span style="flex:1"></span><span class="faint" id="pa-left"></span>
       </div></section>
@@ -612,7 +612,10 @@ export function practiceAction(name, el) {
 export function practiceKey(e) {
   if (!G || !document.getElementById('pa-chart')) return false;
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return false;
-  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); return true; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  if (e.key === 'ArrowRight' && e.shiftKey) { e.preventDefault(); next(10); return true; }
+  if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'd' || e.key === 'D') { e.preventDefault(); next(); return true; }
+  if (e.key === 'p' || e.key === 'P') { e.preventDefault(); toggleAuto(); return true; }
   if ((e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.metaKey) { e.preventDefault(); skipChart(); return true; }
   return false;
 }
