@@ -46,3 +46,15 @@ test('intraday breadth compares each bar with the previous day close', () => {
   assert.deepEqual(m.get(d1), { adv: 1, dec: 1, n: 2 });
   assert.deepEqual(m.get(d1 + H), { adv: 0, dec: 2, n: 2 });
 });
+
+test('rolling breadth measures: A/D line, 10-day net, McClellan, % above averages', async () => {
+  const { breadthMeasures, breadthValue } = await import('../public/market.js');
+  const dates = Array.from({ length: 60 }, (_, i) => new Date(Date.UTC(2026, 0, 1) + i * 86400000).toISOString().slice(0, 10));
+  const b = { dates, adv: dates.map(() => 300), dec: dates.map(() => 200), unch: dates.map(() => 0), a50: dates.map(() => 250), n50: dates.map(() => 500), a200: dates.map(() => 0), n200: dates.map(() => 0) };
+  const m = breadthMeasures(b);
+  assert.equal(m.adline[59], 100 * 60);
+  assert.equal(m.net10[8], null); assert.equal(m.net10[9], 100);
+  assert.ok(Math.abs(m.mcclellan[50]) < 1e-9); // steady breadth → oscillator flat at 0
+  assert.equal(breadthValue(b, 'pct50', dates[10]), 50);
+  assert.equal(breadthValue(b, 'pct200', dates[10]), null);
+});

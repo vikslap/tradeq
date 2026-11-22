@@ -102,3 +102,30 @@ export function intradayBreadth(stocks, times) {
   }
   return out;
 }
+
+// ---------- rolling breadth measures (from the daily Nifty 500 tallies) ----------
+export const BREADTH_VIEWS = [
+  ['pct50', '% above 50-DMA'], ['adline', 'A/D line'], ['net10', '10-day net A/D'], ['mcclellan', 'McClellan oscillator'], ['pct200', '% above 200-DMA'], ['net', 'Daily net A/D'],
+];
+
+/** Every measure as a column aligned with b.dates (computed once, cached on the object). */
+export function breadthMeasures(b) {
+  if (b._m) return b._m;
+  const n = b.dates.length;
+  const net = b.adv.map((a, i) => a - b.dec[i]);
+  const ema = (len) => { const k = 2 / (len + 1); const out = []; let e = null; for (const v of net) { e = e == null ? v : v * k + e * (1 - k); out.push(e); } return out; };
+  const e19 = ema(19); const e39 = ema(39);
+  const adline = []; let run = 0; for (const v of net) { run += v; adline.push(run); }
+  const net10 = net.map((_, i) => (i < 9 ? null : net.slice(i - 9, i + 1).reduce((a, v) => a + v, 0) / 10));
+  const pct = (a, d) => a.map((v, i) => (d[i] ? (v / d[i]) * 100 : null));
+  Object.defineProperty(b, '_m', { value: { net, adline, net10, mcclellan: e19.map((v, i) => (i < 38 ? null : v - e39[i])), pct50: pct(b.a50, b.n50), pct200: pct(b.a200, b.n200), n }, enumerable: false });
+  return b._m;
+}
+
+/** Value of one measure on a date (that day, or the last day before it when `before`). */
+export function breadthValue(b, view, date, opts = {}) {
+  const x = breadthOn(b, date, opts); if (!x) return null;
+  const i = b.dates.indexOf(x.date);
+  const v = breadthMeasures(b)[view]?.[i];
+  return v == null ? null : v;
+}

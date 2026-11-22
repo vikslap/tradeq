@@ -1,5 +1,5 @@
 import { NIFTY500 } from './data/indices.js';
-import { rsLine, rsReadout, breadthOn, istDate } from './market.js';
+import { rsLine, rsReadout, breadthOn, breadthValue, BREADTH_VIEWS, istDate } from './market.js';
 import { addPriceSeries } from './chartstyle.js';
 import { maColor, maChips, practiceMas, setPracticeMas, MA_PERIODS } from './mastyle.js';
 import { tokenParam } from './js/kiteinst.js';
@@ -333,7 +333,12 @@ function buildChart() {
   G.rsAll = G.data.bench?.length ? rsLine(G.data.candles, G.data.bench) : null;
   G.rsS = G.rsAll ? G.chart.addSeries(LineSeries, { color: C.accent, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: 'RS', priceFormat: { type: 'price', precision: 1, minMove: 0.1 } }, 1) : null;
   G.brAll = breadthBars();
-  G.brS = G.brAll ? G.chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, title: G.brAll.label, priceFormat: { type: 'price', precision: 0, minMove: 1 } }, G.rsS ? 2 : 1) : null;
+  const brPane = G.rsS ? 2 : 1;
+  G.brS = !G.brAll ? null : G.brAll.kind === 'line'
+    ? G.chart.addSeries(LineSeries, { color: C.gold || '#f59e0b', lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: G.brAll.label, priceFormat: { type: 'price', precision: 0, minMove: 1 } }, brPane)
+    : G.chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, title: G.brAll.label, priceFormat: { type: 'price', precision: 0, minMove: 1 } }, brPane);
+  if (G.brS && ['pct50', 'pct200'].includes(G.brAll.view)) for (const [p, col] of [[80, C.red], [50, C.text || '#888'], [20, C.green]]) G.brS.createPriceLine({ price: p, color: col, lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+  if (G.brS && G.brAll.view === 'mcclellan') G.brS.createPriceLine({ price: 0, color: C.text || '#888', lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
   const panes = G.chart.panes();
   if (panes.length > 1) { panes[0].setStretchFactor(6); panes[1].setStretchFactor(1.3); if (panes[2]) panes[2].setStretchFactor(1); }
   const vis = G.data.candles.slice(0, G.cursor + 1);
@@ -678,17 +683,24 @@ if (typeof window !== 'undefined') window.addEventListener('tq:chartstyle', () =
 const pctTxt = (v) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
 
 /** Per-bar breadth values for the histogram pane: Nifty 500 daily, or Nifty 50 bar by bar once loaded. */
+const breadthView = () => { try { const v = localStorage.getItem('tq-breadth-view'); return BREADTH_VIEWS.some(([k]) => k === v) ? v : 'pct50'; } catch { return 'pct50'; } };
+const LINE_VIEWS = new Set(['pct50', 'pct200', 'adline']);
 function breadthBars() {
   const iv = G.data.interval;
-  if (iv !== 'day' && G.n50) return { label: 'N50 net', at: (c) => { const x = G.n50.get(c[0]); return x && x.n ? x.adv - x.dec : null; } };
+  if (iv !== 'day' && G.n50) return { label: 'N50 net', kind: 'hist', at: (c) => { const x = G.n50.get(c[0]); return x && x.n ? x.adv - x.dec : null; } };
   const b = ctx.S().breadth;
-  if (iv === 'day' && b?.dates?.length) return { label: 'N500 net', at: (c) => { const x = breadthOn(b, istDate(c[0])); return x ? x.adv - x.dec : null; } };
+  if (iv === 'day' && b?.dates?.length) {
+    const view = breadthView();
+    const label = BREADTH_VIEWS.find(([k]) => k === view)[1];
+    return { view, label: `N500 ${label}`, kind: LINE_VIEWS.has(view) ? 'line' : 'hist', at: (c) => breadthValue(b, view, istDate(c[0])) };
+  }
   return null;
 }
 function brPoint(c) {
   const t = toTime(c[0], G.data.interval);
   const v = G.brAll?.at(c);
-  return v == null ? { time: t } : { time: t, value: v, color: v >= 0 ? 'rgba(34,197,94,.55)' : 'rgba(244,80,107,.55)' };
+  if (v == null) return { time: t };
+  return G.brAll.kind === 'line' ? { time: t, value: v } : { time: t, value: v, color: v >= 0 ? 'rgba(34,197,94,.55)' : 'rgba(244,80,107,.55)' };
 }
 
 function paintMarket(blind) {
@@ -710,6 +722,12 @@ function paintMarket(blind) {
     if (x) parts.push(`<span title="${iv === 'day' ? 'This day' : 'The previous trading day'} across the Nifty 500">📊 Nifty 500${iv === 'day' ? '' : ' (prev. day)'}${blind ? '' : ` ${fmtBar(Date.parse(x.date), 'day').replace(/^\w+, /, '')}`}: <b class="pos">${x.adv}↑</b> / <b class="neg">${x.dec}↓</b> · ${x.pct50 != null ? `${Math.round(x.pct50 * 100)}% > 50-DMA` : ''}${x.pct200 != null ? ` · ${Math.round(x.pct200 * 100)}% > 200-DMA` : ''}</span>`);
     else parts.push('<span class="faint">📊 No Nifty 500 breadth for this date — build more years in Settings</span>');
   } else parts.push(`<span class="faint">📊 Breadth: build it once in <a href="#/settings">Settings → Market breadth</a></span>`);
+  if (iv === 'day' && b?.dates?.length) {
+    const view = breadthView();
+    const v = breadthValue(b, view, istDate(c[0]));
+    const hint = { pct50: v == null ? '' : v >= 80 ? ' (stretched)' : v <= 20 ? ' (washed out)' : '', pct200: v == null ? '' : v >= 60 ? ' (healthy)' : v <= 40 ? ' (weak)' : '', mcclellan: v == null ? '' : v >= 0 ? ' (breadth momentum up)' : ' (breadth momentum down)' }[view] || '';
+    parts.push(`<label class="row" style="gap:6px">Pane: <select class="input sm-select" data-breadth-view>${BREADTH_VIEWS.map(([k, l]) => `<option value="${k}" ${k === view ? 'selected' : ''}>${l}</option>`).join('')}</select>${v != null && view !== 'adline' ? `<b>${view.startsWith('pct') ? `${Math.round(v)}%` : Math.round(v)}${hint}</b>` : ''}</label>`);
+  }
   if (iv !== 'day' && !G.n50 && ctx.S().kite.connected) parts.push(`<button class="btn sm ghost" data-pa="n50">Load Nifty 50 breadth bar by bar (~20 s)</button>`);
   el.innerHTML = parts.join('');
 }
@@ -725,3 +743,8 @@ async function loadN50(btn) {
   } catch (e) { btn.disabled = false; btn.textContent = 'Load Nifty 50 breadth bar by bar'; ctx.toast(ctx.esc(e.message), 'err'); }
 }
 if (typeof document !== 'undefined') document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-pa="n50"]'); if (b) loadN50(b); });
+if (typeof document !== 'undefined') document.addEventListener('change', (e) => {
+  const sel = e.target.closest?.('[data-breadth-view]'); if (!sel) return;
+  try { localStorage.setItem('tq-breadth-view', sel.value); } catch { /* private mode */ }
+  if (G && document.getElementById('pa-chart')) { buildChart(); paint(); }
+});
