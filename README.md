@@ -269,3 +269,7 @@ The Nifty 500 history is built once, in **Settings → Market breadth**:
 - You can upload NSE's latest Nifty 500 CSV (niftyindices.com) to refresh the list.
 
 **Surprise charts** pick a random stock from the whole **Nifty 500** (large, mid and small caps; your uploaded list if you've added one) and a random start date. That gives hundreds of thousands of possible replays. The list is today's members, so very old dates still lean slightly towards stocks that did well enough to stay in the index.
+
+### Live breadth on the dashboard
+
+With Kite connected and the breadth history built, the dashboard shows the Nifty 500 **today**: advancers/decliners, % above the 50- and 200-day averages (with a 120-day sparkline), and the McClellan oscillator. It uses one Kite quote call for all 500 stocks and refreshes every minute during market hours. After 3:45 PM on a trading day, opening the dashboard adds that day to the stored history, so it stays current without rebuilding. If you skip more than 5 days in a row, rebuild in Settings. A breadth history built before this feature needs one rebuild, to store each stock's recent closes.

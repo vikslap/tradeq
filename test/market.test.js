@@ -58,3 +58,19 @@ test('rolling breadth measures: A/D line, 10-day net, McClellan, % above average
   assert.equal(breadthValue(b, 'pct50', dates[10]), 50);
   assert.equal(breadthValue(b, 'pct200', dates[10]), null);
 });
+
+test('live breadth from quotes + stored tails, and appending the day after the close', async () => {
+  const { liveBreadth, appendToday } = await import('../public/market.js');
+  const tails = { asOf: '2026-11-20', closes: { UP: Array(199).fill(100), DOWN: Array(199).fill(100), SHORT: Array(10).fill(50) } };
+  const quotes = { 'NSE:UP': { last: 110, prevClose: 100 }, 'NSE:DOWN': { last: 90, prevClose: 100 }, 'NSE:SHORT': { last: 50, prevClose: 50 } };
+  const dates = Array.from({ length: 50 }, (_, i) => new Date(Date.UTC(2026, 8, 1) + i * 86400000).toISOString().slice(0, 10));
+  const history = { dates, adv: dates.map(() => 2), dec: dates.map(() => 1), unch: dates.map(() => 0), a50: dates.map(() => 1), n50: dates.map(() => 2), a200: dates.map(() => 1), n200: dates.map(() => 2) };
+  const L = liveBreadth(history, tails, quotes, '2026-11-21');
+  assert.deepEqual([L.adv, L.dec, L.unch, L.n], [1, 1, 1, 3]);
+  assert.equal(L.pct50, 50); assert.equal(L.pct200, 50); // UP above both averages, DOWN below; SHORT too new
+  assert.ok(L.mcclellan < 0); // today's net (0) is below the steady +1
+  const next = appendToday(history, tails, L, '2026-11-21');
+  assert.equal(next.history.dates.at(-1), '2026-11-21');
+  assert.equal(next.tails.closes.UP.at(-1), 110); assert.equal(next.tails.closes.UP.length, 199);
+  assert.equal(appendToday(next.history, next.tails, L, '2026-11-21'), null); // not twice
+});

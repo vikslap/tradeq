@@ -552,3 +552,4 @@ tr.sel-row td { background: var(--accent-soft); }
 
 kbd { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; padding: 1px 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; color: var(--muted); margin-left: 4px; }
 @media (hover: none) { kbd { display: none; } }
+#mkt-breadth { grid-column: 1 / -1; }

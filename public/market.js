@@ -129,3 +129,46 @@ export function breadthValue(b, view, date, opts = {}) {
   const v = breadthMeasures(b)[view]?.[i];
   return v == null ? null : v;
 }
+
+// ---------- live breadth (today, from one Kite quote call for all members) ----------
+
+/**
+ * history: stored daily breadth; tails: { asOf, closes: { SYM: [last ≤199 daily closes] } };
+ * quotes: { 'NSE:SYM': { last, prevClose } }; today: 'YYYY-MM-DD' (IST).
+ * Returns today's adv/dec, % above 50/200-DMA and the McClellan oscillator.
+ */
+export function liveBreadth(history, tails, quotes, today) {
+  let adv = 0; let dec = 0; let unch = 0; let a50 = 0; let n50 = 0; let a200 = 0; let n200 = 0; let seen = 0;
+  const closesToday = {};
+  for (const [sym, tail0] of Object.entries(tails?.closes || {})) {
+    const q = quotes[`NSE:${sym}`]; if (!q || !(q.last > 0)) continue;
+    seen++;
+    const tail = tails.asOf >= today ? tail0.slice(0, -1) : tail0; // already holds today's close → leave it out
+    const last = q.last; closesToday[sym] = last;
+    if (q.prevClose) { if (last > q.prevClose) adv++; else if (last < q.prevClose) dec++; else unch++; }
+    if (tail.length >= 49) { n50++; const s = tail.slice(-49).reduce((a, v) => a + v, 0) + last; if (last > s / 50) a50++; }
+    if (tail.length >= 199) { n200++; const s = tail.slice(-199).reduce((a, v) => a + v, 0) + last; if (last > s / 200) a200++; }
+  }
+  // McClellan: carry the 19/39-day averages of net advances forward by today's net.
+  let mcclellan = null;
+  if (history?.dates?.length) {
+    const net = history.adv.map((a, i) => a - history.dec[i]);
+    let upto = history.dates.length; while (upto > 0 && history.dates[upto - 1] >= today) upto--;
+    if (upto >= 39) {
+      const ema = (len) => { const k = 2 / (len + 1); let e = null; for (let i = 0; i < upto; i++) e = e == null ? net[i] : net[i] * k + e * (1 - k); return e * (1 - k) + (adv - dec) * k; };
+      mcclellan = ema(19) - ema(39);
+    }
+  }
+  const staleDays = tails?.asOf ? Math.round((Date.parse(today) - Date.parse(tails.asOf)) / 86400000) : null;
+  return { adv, dec, unch, n: seen, pct50: n50 ? (a50 / n50) * 100 : null, pct200: n200 ? (a200 / n200) * 100 : null, a50, n50, a200, n200, mcclellan, staleDays, closesToday };
+}
+
+/** After the close: add today's figures to the history and today's closes to the tails. */
+export function appendToday(history, tails, live, today) {
+  if (!history?.dates?.length || history.dates.at(-1) >= today) return null;
+  const h = { ...history };
+  for (const [k, v] of [['dates', today], ['adv', live.adv], ['dec', live.dec], ['unch', live.unch], ['a50', live.a50], ['n50', live.n50], ['a200', live.a200], ['n200', live.n200]]) h[k] = [...history[k], v];
+  const closes = {};
+  for (const [s, tail] of Object.entries(tails.closes)) closes[s] = live.closesToday[s] != null ? [...tail, live.closesToday[s]].slice(-199) : tail;
+  return { history: h, tails: { asOf: today, closes } };
+}

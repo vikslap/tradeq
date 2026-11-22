@@ -56,7 +56,7 @@ export async function buildBreadth(spans, onProgress = () => {}) {
     const years = Math.round(((to - from) / DAY - 300) / 365);
     job.total = syms.length;
     const pace = S.kite.mock ? 0 : 360; // Kite allows ~3 historical requests a second
-    const days = {};
+    const days = {}; const tails = {}; let lastDay = '';
     for (const s of syms) {
       if (job.cancel) throw new Error('Cancelled');
       const tok = tokens[s];
@@ -68,7 +68,7 @@ export async function buildBreadth(spans, onProgress = () => {}) {
           for (const c of await rawCandles(tok, 'day', a, b)) { const d = new Date(c[0] + 330 * 60000).toISOString().slice(0, 10); if (!closes.length || closes.at(-1)[0] < d) closes.push([d, c[4]]); }
           const wait = pace - (Date.now() - t0); if (wait > 0) await sleep(wait);
         }
-        if (closes.length) addStockToBreadth(days, closes); else job.failed.push(s);
+        if (closes.length) { addStockToBreadth(days, closes); tails[s] = closes.slice(-199).map((x) => Math.round(x[1] * 100) / 100); lastDay = closes.at(-1)[0] > lastDay ? closes.at(-1)[0] : lastDay; } else job.failed.push(s);
       } catch (e) {
         if (e.code === 'TOKEN' || e.code === 'TokenException' || e.code === 'NOT_CONNECTED') throw e;
         job.failed.push(s);
@@ -82,7 +82,9 @@ export async function buildBreadth(spans, onProgress = () => {}) {
     const result = { index: 'NIFTY 500', membersAsOf: members500AsOf(), members: syms.length, missing: job.failed, built: new Date().toISOString(), years, spans,
       dates: keep(all.dates), adv: keep(all.adv), dec: keep(all.dec), unch: keep(all.unch), a50: keep(all.a50), n50: keep(all.n50), a200: keep(all.a200), n200: keep(all.n200) };
     await api('/api/breadth', { method: 'PUT', body: result });
-    S.breadth = result;
+    // The last ~200 closes of each stock, so the dashboard can work out live figures.
+    await api('/api/breadth/tails', { method: 'PUT', body: { asOf: lastDay, closes: tails } });
+    S.breadth = result; S.breadthTails = { asOf: lastDay, closes: tails };
     return result;
   } finally { job.running = false; }
 }
