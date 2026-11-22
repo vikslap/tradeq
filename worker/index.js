@@ -166,13 +166,18 @@ export default {
 
       // Kite pass-through requests don't touch the journal: answer them straight away,
       // outside the journal queue (breadth building sends ~1,000 of these).
-      if (['/api/kite/raw-candles', '/api/kite/tokens'].includes(url.pathname) || url.pathname.startsWith('/api/kite/instruments/')) {
+      // The Nifty P/E fetch (up to ~28 calls to NSE the first time) goes this way too.
+      if (['/api/kite/raw-candles', '/api/kite/tokens', '/api/valuation'].includes(url.pathname) || url.pathname.startsWith('/api/kite/instruments/')) {
         const row = await db.prepare("SELECT value FROM kv WHERE key = 'kite-session'").first();
         const storage = { get: async () => (row ? JSON.parse(row.value) : null), put: async () => {}, del: (k) => db.prepare('DELETE FROM kv WHERE key = ?').bind(k).run() };
         const kite = createKite({ apiKey: env.KITE_API_KEY, apiSecret: env.KITE_API_SECRET, storage, mock: /^(1|true|yes)$/i.test(env.KITE_MOCK || ''), clientSearch: true, getTrades: () => [] });
         await kite.init();
-        const body0 = req.method === 'POST' ? await readBody(req) : {};
-        const hit = await createApi({ store, kite, cache: { get: async () => null, put: async () => {} }, hosted: true })({ method: req.method, pathname: url.pathname, url, body: async () => body0 });
+        const body0 = req.method === 'POST' || req.method === 'PUT' ? await readBody(req) : {};
+        const kvCache = url.pathname === '/api/valuation' ? {
+          get: async (k) => { const r = await db.prepare('SELECT value FROM kv WHERE key = ?').bind('cache|' + k).first(); return r ? JSON.parse(r.value) : null; },
+          put: (k, v) => db.prepare('INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)').bind('cache|' + k, JSON.stringify(v)).run(),
+        } : { get: async () => null, put: async () => {} };
+        const hit = await createApi({ store, kite, cache: kvCache, hosted: true })({ method: req.method, pathname: url.pathname, url, body: async () => body0 });
         const out = hit?.result;
         if (out?.response) return new Response(out.response.body, { status: out.response.status, headers: { 'Content-Type': out.response.headers.get('content-type') || 'text/plain; charset=utf-8', 'Cache-Control': 'private, max-age=3600' } });
         return json(out ?? { error: 'Unknown API route' }, out ? 200 : 404);

@@ -575,7 +575,7 @@ kbd { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px;
   .dash2 { display: flex; flex-direction: column; align-items: stretch; }
   .dash-main, .dash-rail { display: contents; }
   .dash-rail { position: static; }
-  .o-hero { order: 1; } .o-kpis { order: 2; } .o-open { order: 3; } .o-breadth { order: 4; } .o-quests { order: 5; } .o-equity { order: 6; } .o-lt { order: 7; } .o-xp { order: 8; }
+  .o-hero { order: 1; } .o-kpis { order: 2; } .o-open { order: 3; } .o-breadth { order: 4; } .o-val { order: 5; } .o-quests { order: 6; } .o-equity { order: 7; } .o-lt { order: 8; } .o-xp { order: 9; }
   .dash-rail .hero { flex-direction: row; align-items: center; }
   .dash-rail .hero .ring-wrap { position: relative; right: auto; top: auto; transform: none; }
   .dash-rail .hero h2, .dash-rail .hero .title-line { padding-right: 0; }
@@ -612,3 +612,15 @@ kbd { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px;
 }
 .dash-rail > *, .dash-main > * { flex-shrink: 0; }
 @media (max-width: 1440px) and (min-width: 1281px) { .dash2 { grid-template-columns: minmax(0, 1fr) 340px; } }
+
+/* Nifty 50 valuation card */
+.kpis.k2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.kpis.k2 .sm-select { max-width: 100%; font-size: 11px; padding: 2px 4px; }
+.pe-verdict { margin: 10px 0 6px; font-size: 13px; }
+.pe-range { position: relative; height: 10px; border-radius: 5px; background: var(--border); margin: 8px 0 4px; }
+.pe-iqr { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 5px; }
+.pe-med { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--muted, #888); }
+.pe-now { position: absolute; top: -4px; width: 12px; height: 18px; margin-left: -6px; border-radius: 4px; background: var(--accent); box-shadow: 0 0 0 2px var(--card, #fff); }
+.pe-scale { display: flex; justify-content: space-between; gap: 6px; font-size: 10px; color: var(--muted, #888); }
+.pe-scale span:nth-child(2) { text-align: center; }
+.pe-extra { margin-top: 8px; font-size: 12px; }

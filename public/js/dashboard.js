@@ -1,4 +1,5 @@
 import { breadthCardShell } from './breadthlive.js';
+import { valuationCardShell } from './valuation-ui.js';
 import { metrics, tradeKey, isLT, isTrading, reviewStatus } from '../game.js';
 import { computeStats, investmentStats } from '../stats.js';
 import { mountEquityChart } from '../tradechart.js';
@@ -51,6 +52,7 @@ export function pageDashboard() {
       </div>
     </section>
     ${breadthCardShell()}
+    ${valuationCardShell()}
     <section class="card o-quests">
       <header class="card-h"><h3>Today's quests</h3><span class="sub">${doneQ}/${quests.length} done · clean day = +20 XP</span></header>
       <div class="quests">${quests.map(questHtml).join('')}</div>
