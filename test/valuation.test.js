@@ -43,6 +43,11 @@ test('median, quartiles and percentile', () => {
   assert.ok(sum.windows.some((x) => x.key === 'all'));
 });
 
+test('parses the niftyindices CSV with *P/E and DIV YIELD % headers', () => {
+  const csv = 'Date,*P/E,P/B,DIV YIELD %\r\n20 Nov 2026,21.02,3.17,1.32\r\n19 Nov 2026,20.78,3.13,1.34\r\n';
+  assert.deepEqual(parsePeCsv(csv), [{ date: '2026-11-20', pe: 21.02, pb: 3.17, dy: 1.32 }, { date: '2026-11-19', pe: 20.78, pb: 3.13, dy: 1.34 }]);
+});
+
 test('year chunks cover the range', () => {
   assert.deepEqual(yearChunks('2024-11-01', '2026-02-03'), [['2024-11-01', '2024-12-31'], ['2025-01-01', '2025-12-31'], ['2026-01-01', '2026-02-03']]);
 });

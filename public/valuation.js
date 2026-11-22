@@ -36,9 +36,9 @@ export function parsePeCsv(text) {
   const split = (l) => { const out = []; let cur = ''; let q = false; for (const ch of l) { if (ch === '"') q = !q; else if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; } else cur += ch; } out.push(cur.trim()); return out; };
   const hi = lines.findIndex((l) => /p\s*\/?\s*e/i.test(l) && /date/i.test(l));
   if (hi < 0) return [];
-  const head = split(lines[hi]).map((h) => h.toLowerCase().replace(/\s+/g, ''));
+  const head = split(lines[hi]).map((h) => h.toLowerCase().replace(/[^a-z]/g, '')); // "*P/E" → "pe", "DIV YIELD %" → "divyield"
   const col = (re) => head.findIndex((h) => re.test(h));
-  const cd = col(/date/); const cpe = col(/^p\/?e$|pe(ratio)?$/); const cpb = col(/^p\/?b$|pb(ratio)?$/); const cdy = col(/div|yield/);
+  const cd = col(/date/); const cpe = col(/^pe(ratio)?$/); const cpb = col(/^pb(ratio)?$/); const cdy = col(/div|yield/);
   if (cd < 0 || cpe < 0) return [];
   return lines.slice(hi + 1).map((l) => { const c = split(l); return { date: isoDate(c[cd]), pe: num(c[cpe]), pb: cpb >= 0 ? num(c[cpb]) : null, dy: cdy >= 0 ? num(c[cdy]) : null }; })
     .filter((r) => r.date && r.pe);
