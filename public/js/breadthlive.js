@@ -11,7 +11,7 @@ const todayIST = () => istNow().toISOString().slice(0, 10);
 const marketOpen = () => { const d = istNow(); const m = d.getUTCHours() * 60 + d.getUTCMinutes(); return d.getUTCDay() % 6 !== 0 && m >= 9 * 60 + 15 && m <= 15 * 60 + 30; };
 const afterClose = () => { const d = istNow(); return d.getUTCDay() % 6 !== 0 && d.getUTCHours() * 60 + d.getUTCMinutes() >= 15 * 60 + 45; };
 
-export const breadthCardShell = () => `<section class="card" id="mkt-breadth"><header class="card-h"><h3>📊 Market breadth · Nifty 500</h3><span class="sub" id="mkt-breadth-sub"></span></header><div id="mkt-breadth-body">${S.liveBreadthHtml || '<div class="empty-sm">Loading…</div>'}</div></section>`;
+export const breadthCardShell = () => `<section class="card o-breadth" id="mkt-breadth"><header class="card-h"><h3>📊 Market breadth · Nifty 500</h3></header><div class="sub" id="mkt-breadth-sub" style="margin:-8px 0 8px"></div><div id="mkt-breadth-body">${S.liveBreadthHtml || '<div class="empty-sm">Loading…</div>'}</div></section>`;
 
 async function loadTails() {
   if (S.breadthTails) return S.breadthTails;

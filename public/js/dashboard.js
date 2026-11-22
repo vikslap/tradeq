@@ -21,8 +21,22 @@ export function pageDashboard() {
   const discColor = g.discipline == null ? 'var(--faint)' : g.discipline >= 80 ? 'var(--green)' : g.discipline >= 60 ? 'var(--gold)' : 'var(--red)';
   const quests = [...g.quests, ...syncQuest()];
   const doneQ = quests.filter((q) => q.done).length;
-  return `<div class="dash">
-    <section class="card hero">
+  return `<div class="dash2">
+  <div class="dash-main">
+    <div class="kpis k6 o-kpis" id="kpis">${kpiTiles()}</div>
+    <section class="card o-open">
+      <header class="card-h"><h3>Open positions <span class="faint" style="font-weight:500">· ${open.length}</span></h3><span class="row"><span class="sub" id="live-note">${liveNote()}</span><span id="sync-badge">${syncBadge()}</span></span></header>
+      <div id="open-positions">${openPositionsInner()}</div>
+    </section>
+    <section class="card o-equity">
+      ${(() => { const vs = computeStats(viewTrades(), S.state.groups); return `<header class="card-h"><h3>Equity curve</h3>${viewSeg()}</header>
+      <div class="sub" style="margin:-6px 0 10px">${vs.count} closed · net ${compact(vs.net)} · max drawdown ${compact(-vs.maxDD)} · daily, by exit date</div>
+      ${equityChart(vs.curve)}`; })()}
+    </section>
+    ${longTermCard()}
+  </div>
+  <aside class="dash-rail">
+    <section class="card hero o-hero">
       <div class="ring-wrap">${ring(L.progress, 118, 10, 'url(#lvlgrad)')}<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="lvlgrad" x1="0" x2="1"><stop offset="0" stop-color="#8b6cff"/><stop offset="1" stop-color="#5ad1ff"/></linearGradient></defs></svg>
         <div class="ring-label"><div><small>Level</small><b>${L.lvl}</b></div></div></div>
       <div style="flex:1;min-width:0">
@@ -37,25 +51,15 @@ export function pageDashboard() {
       </div>
     </section>
     ${breadthCardShell()}
-    <section class="card">
+    <section class="card o-quests">
       <header class="card-h"><h3>Today's quests</h3><span class="sub">${doneQ}/${quests.length} done · clean day = +20 XP</span></header>
       <div class="quests">${quests.map(questHtml).join('')}</div>
     </section>
-    <div class="kpis span-2" id="kpis">${kpiTiles()}</div>
-    <section class="card span-2">
-      <header class="card-h"><h3>Open positions <span class="faint" style="font-weight:500">· ${open.length}</span></h3><span class="row"><span class="sub" id="live-note">${liveNote()}</span><span id="sync-badge">${syncBadge()}</span></span></header>
-      <div id="open-positions">${openPositionsInner()}</div>
-    </section>
-    ${longTermCard()}
-    <section class="card">
-      ${(() => { const vs = computeStats(viewTrades(), S.state.groups); return `<header class="card-h"><h3>Equity curve</h3>${viewSeg()}</header>
-      <div class="sub" style="margin:-6px 0 10px">${vs.count} closed · net ${compact(vs.net)} · max drawdown ${compact(-vs.maxDD)} · daily, by exit date</div>
-      ${equityChart(vs.curve)}`; })()}
-    </section>
-    <section class="card">
+    <section class="card o-xp">
       <header class="card-h"><h3>XP feed</h3><a class="link" href="#/achievements">See all →</a></header>
       ${xpFeed(g.events.slice(0, 9))}
     </section>
+  </aside>
   </div>`;
 }
 
@@ -63,7 +67,7 @@ export function pageDashboard() {
 export function longTermCard() {
   const lt = S.state.trades.filter(isLT);
   if (!lt.length) return '';
-  return `<section class="card span-2" id="lt-card">${longTermInner()}</section>`;
+  return `<section class="card o-lt" id="lt-card">${longTermInner()}</section>`;
 }
 
 
@@ -72,7 +76,7 @@ export function longTermInner() {
   const rows = inv.holdings.sort((a, b) => b.inv - a.inv);
   return `<header class="card-h"><h3>🌳 Long-term holdings <span class="faint" style="font-weight:500">· ${rows.length}</span></h3>
       <span class="sub lt-sum">invested ${compact(inv.invested)} · value ${compact(inv.value)}${inv.unpriced ? `<span class="faint" title="${inv.unpriced} holding(s) without a live price are counted at cost">*</span>` : ''} · P&L <span class="${cls(inv.unrealised)}">${compact(inv.unrealised)} (${pct(inv.returnPct)})</span>${inv.xirr != null ? ` · XIRR <b class="${cls(inv.xirr)}">${pct(inv.xirr)}</b>` : ''}${inv.sold.length ? ` · realised ${compact(inv.realised)}` : ''}</span></header>
-    ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Symbol</th><th class="r">Qty</th><th class="r">Avg</th><th class="r">LTP</th><th class="r">Value</th><th class="r">P&L</th><th class="r">Return</th><th class="r">CAGR</th><th>Held</th><th>Thesis review</th><th></th></tr></thead><tbody>
+    ${rows.length ? `<div class="table-wrap"><table class="tbl ltt"><thead><tr><th>Symbol</th><th class="r">Qty</th><th class="r">Avg</th><th class="r">LTP</th><th class="r">Value</th><th class="r">P&L</th><th class="r">Return</th><th class="r">CAGR</th><th>Held</th><th>Thesis review</th><th></th></tr></thead><tbody>
     ${rows.map((h) => { const rs = reviewStatus(h.t); return `<tr class="click" data-action="open-drawer" data-id="${h.t.id}">
       <td><span class="sym">${esc(h.t.symbol)}</span><span class="exch">${h.t.exchange}</span></td>
       <td class="r num">${nf0.format(h.t.qty)}</td><td class="r num">${price(h.t.entryPrice)}</td><td class="r num">${h.unpriced ? `<span class="faint" title="${S.kite.connected ? 'Kite returned no price for this symbol — check it matches Kite (Edit → symbol search)' : 'Connect Kite for live prices'}">no price</span>` : price(h.ltp)}</td>
@@ -130,7 +134,7 @@ export function liveNote() {
 export function openPositionsInner() {
   const open = S.state.trades.filter((t) => t.status === 'OPEN' && isTrading(t)).sort((a, b) => new Date(b.entryTime) - new Date(a.entryTime));
   if (!open.length) return '<div class="empty-sm">No open positions. Waiting for the right setup is a skill.</div>';
-  return `<div class="table-wrap"><table class="tbl"><thead><tr>
+  return `<div class="table-wrap"><table class="tbl pt"><thead><tr>
     <th>Symbol</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">LTP</th><th class="r">Stop</th><th class="r">Target</th><th class="r">MTM</th><th class="r">R now</th><th>Held</th><th></th></tr></thead><tbody>
     ${open.map((t) => {
     const q = quoteFor(t); const m = metrics(t, q?.last ?? null);
