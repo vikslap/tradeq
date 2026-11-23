@@ -20,7 +20,7 @@ export async function loadBreadth(force = false) {
   return S.breadth;
 }
 
-async function tokensFor(symbols) {
+export async function tokensFor(symbols) {
   if (clientSearch()) {
     const list = await listFor('NSE');
     const by = new Map(list.map((i) => [i.s, i.k]));

@@ -172,3 +172,58 @@ export function appendToday(history, tails, live, today) {
   for (const [s, tail] of Object.entries(tails.closes)) closes[s] = live.closesToday[s] != null ? [...tail, live.closesToday[s]].slice(-199) : tail;
   return { history: h, tails: { asOf: today, closes } };
 }
+
+// ---------- breadth for a subset (e.g. Nifty 50) from the stored per-stock closes ----------
+
+/**
+ * Daily breadth history for `syms`, rebuilt from the stored tails (the last ≤199 closes per
+ * stock, right-aligned to tails.asOf). Dates come from the full history. Gives ~198 days of
+ * advance/decline and ~150 days of % above the 50-DMA; % above the 200-DMA needs 200 closes,
+ * so only today's live figure has it.
+ */
+export function subsetHistory(history, tails, syms) {
+  const dates = (history?.dates || []).filter((d) => !tails?.asOf || d <= tails.asOf);
+  const cols = syms.map((s) => tails?.closes?.[s]).filter((t) => Array.isArray(t) && t.length > 1);
+  const L = Math.min(dates.length, Math.max(0, ...cols.map((t) => t.length)));
+  const out = { dates: dates.slice(dates.length - L + 1), adv: [], dec: [], unch: [], a50: [], n50: [], a200: [], n200: [] };
+  for (let j = 1; j < L; j++) {
+    let adv = 0; let dec = 0; let unch = 0; let a50 = 0; let n50 = 0;
+    for (const t of cols) {
+      const k = j - (L - t.length); // index into this stock's tail
+      if (k < 1) continue;
+      if (t[k] > t[k - 1]) adv++; else if (t[k] < t[k - 1]) dec++; else unch++;
+      if (k >= 49) { n50++; let s = 0; for (let x = k - 49; x <= k; x++) s += t[x]; if (t[k] > s / 50) a50++; }
+    }
+    out.adv.push(adv); out.dec.push(dec); out.unch.push(unch); out.a50.push(a50); out.n50.push(n50); out.a200.push(0); out.n200.push(0);
+  }
+  return out;
+}
+
+export const subsetTails = (tails, syms) => ({ asOf: tails?.asOf, closes: Object.fromEntries(syms.filter((s) => tails?.closes?.[s]).map((s) => [s, tails.closes[s]])) });
+
+// ---------- intraday swings (zig-zag) ----------
+
+/**
+ * Peaks and troughs of a price line: a turn counts once price has reversed by `pct`% from
+ * the extreme. points: [[time, price]]. Returns [{ i, time, price, type: 'peak'|'trough' }],
+ * plus the day's high and low flagged with `extreme: true`.
+ */
+export function swings(points, pct) {
+  if (points.length < 3) return [];
+  const P = (i) => points[i][1]; const up = 1 + pct / 100; const dn = 1 - pct / 100;
+  const piv = []; let dir = 0; let ext = 0; let hiI = 0; let loI = 0;
+  for (let i = 1; i < points.length; i++) {
+    const p = P(i);
+    if (dir === 0) {
+      if (p > P(hiI)) hiI = i; if (p < P(loI)) loI = i;
+      if (hiI > loI && P(hiI) >= P(loI) * up) { piv.push({ i: loI, type: 'trough' }); dir = 1; ext = hiI; }
+      else if (loI > hiI && P(loI) <= P(hiI) * dn) { piv.push({ i: hiI, type: 'peak' }); dir = -1; ext = loI; }
+    } else if (dir === 1) {
+      if (p > P(ext)) ext = i; else if (p <= P(ext) * dn) { piv.push({ i: ext, type: 'peak' }); dir = -1; ext = i; }
+    } else if (p < P(ext)) ext = i; else if (p >= P(ext) * up) { piv.push({ i: ext, type: 'trough' }); dir = 1; ext = i; }
+  }
+  let hi = 0; let lo = 0; points.forEach((_, i) => { if (P(i) > P(hi)) hi = i; if (P(i) < P(lo)) lo = i; });
+  const res = piv.filter((x) => x.i !== hi && x.i !== lo && x.i > 2); // the first minutes after the open aren't swings
+  res.push({ i: hi, type: 'peak', extreme: true }, { i: lo, type: 'trough', extreme: true });
+  return res.sort((a, b) => a.i - b.i).map((x) => ({ ...x, time: points[x.i][0], price: P(x.i) }));
+}

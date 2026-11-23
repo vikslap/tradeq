@@ -74,3 +74,23 @@ test('live breadth from quotes + stored tails, and appending the day after the c
   assert.equal(next.tails.closes.UP.at(-1), 110); assert.equal(next.tails.closes.UP.length, 199);
   assert.equal(appendToday(next.history, next.tails, L, '2026-11-21'), null); // not twice
 });
+
+import { subsetHistory, subsetTails, swings } from '../public/market.js';
+
+test('subset breadth from tails', () => {
+  const dates = Array.from({ length: 60 }, (_, i) => new Date(Date.UTC(2026, 0, 1) + i * 86400000).toISOString().slice(0, 10));
+  const up = Array.from({ length: 60 }, (_, i) => 100 + i); const dn = Array.from({ length: 60 }, (_, i) => 200 - i);
+  const tails = { asOf: dates.at(-1), closes: { A: up, B: dn, C: up.slice(-10), X: up } };
+  const h = subsetHistory({ dates }, tails, ['A', 'B', 'C']);
+  assert.equal(h.dates.length, 59); assert.equal(h.dates.at(-1), dates.at(-1));
+  assert.equal(h.adv.at(-1), 2); assert.equal(h.dec.at(-1), 1);
+  assert.equal(h.n50.at(-1), 2); assert.equal(h.a50.at(-1), 1); // C too short for a 50-DMA
+  assert.equal(h.adv[0], 1); // only A and B exist then; C starts later
+  assert.deepEqual(Object.keys(subsetTails(tails, ['A', 'Z']).closes), ['A']);
+});
+
+test('swings find alternating peaks and troughs plus the day high/low', () => {
+  const v = [100, 101, 102, 101, 100.5, 101.5, 103, 102, 100, 99, 99.5, 100.6];
+  const s = swings(v.map((p, i) => [i, p]), 1);
+  assert.deepEqual(s.map((x) => [x.i, x.type, !!x.extreme]), [[4, 'trough', false], [6, 'peak', true], [9, 'trough', true]]);
+});
