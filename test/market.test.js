@@ -94,3 +94,27 @@ test('swings find alternating peaks and troughs plus the day high/low', () => {
   const s = swings(v.map((p, i) => [i, p]), 1);
   assert.deepEqual(s.map((x) => [x.i, x.type, !!x.extreme]), [[4, 'trough', false], [6, 'peak', true], [9, 'trough', true]]);
 });
+
+import { squarify, heatColor, groupSectors } from '../public/heatmap.js';
+
+test('squarify fills the box exactly, keeps order and proportions', () => {
+  const v = [6, 6, 4, 3, 2, 2, 1];
+  const r = squarify(v, 0, 0, 600, 400);
+  const area = r.reduce((s, x) => s + x.w * x.h, 0);
+  assert.ok(Math.abs(area - 240000) < 1e-6);
+  r.forEach((x, i) => { assert.ok(Math.abs((x.w * x.h) / 240000 - v[i] / 24) < 1e-9); assert.ok(x.x >= -1e-9 && x.y >= -1e-9 && x.x + x.w <= 600 + 1e-6 && x.y + x.h <= 400 + 1e-6); });
+  // no overlaps
+  for (let a = 0; a < r.length; a++) for (let b = a + 1; b < r.length; b++) {
+    const A = r[a]; const B = r[b];
+    const ov = Math.max(0, Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x)) * Math.max(0, Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y));
+    assert.ok(ov < 1e-6, `${a} overlaps ${b}`);
+  }
+});
+
+test('heat colours and sector groups', () => {
+  assert.equal(heatColor(0), 'rgb(90,98,112)');
+  assert.equal(heatColor(5), 'rgb(22,163,74)');
+  assert.equal(heatColor(-3), 'rgb(220,38,38)');
+  const g = groupSectors([{ sym: 'A', pct: 2, value: 3, sector: 'IT' }, { sym: 'B', pct: -1, value: 1, sector: 'IT' }, { sym: 'C', pct: 1, value: 1, sector: 'Banks' }]);
+  assert.equal(g[0].name, 'IT'); assert.equal(g[0].pct, 1.25); assert.equal(g[0].up, 1); assert.equal(g[0].down, 1);
+});

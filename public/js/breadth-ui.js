@@ -3,7 +3,7 @@ import { S, api, reload } from './state.js';
 import { render } from './main.js';
 import { $, esc, fmtDate } from './util.js';
 import { toast } from './ui.js';
-import { buildBreadth, loadBreadth, members500, members500AsOf, parseMembersCsv } from './breadth.js';
+import { buildBreadth, loadBreadth, members500, members500AsOf, parseMembersCsv, parseIndustries } from './breadth.js';
 
 export function breadthCard() {
   const b = S.breadth;
@@ -42,11 +42,13 @@ export const breadthActions = {
     const input = document.createElement('input'); input.type = 'file'; input.accept = '.csv,text/csv';
     input.onchange = async () => {
       try {
-        const syms = parseMembersCsv(await input.files[0].text());
+        const text = await input.files[0].text();
+        const syms = parseMembersCsv(text);
         if (syms.length < 100) throw new Error(`Only ${syms.length} symbols found — is this the Nifty 500 list?`);
-        await api('/api/settings', { method: 'PUT', body: { indexLists: { ...(S.state.settings.indexLists || {}), nifty500: syms, nifty500AsOf: new Date().toISOString() } } });
+        const ind = parseIndustries(text);
+        await api('/api/settings', { method: 'PUT', body: { indexLists: { ...(S.state.settings.indexLists || {}), nifty500: syms, nifty500AsOf: new Date().toISOString(), industries: Object.keys(ind).length ? ind : (S.state.settings.indexLists?.industries || null) } } });
         await reload();
-        toast(`Nifty 500 list updated · ${syms.length} stocks. Rebuild breadth to use it.`);
+        toast(`Nifty 500 list updated · ${syms.length} stocks${Object.keys(ind).length ? `, ${new Set(Object.values(ind)).size} sectors` : ''}. Rebuild breadth to use it.`);
       } catch (e) { toast(esc(e.message), 'err'); }
     };
     input.click();

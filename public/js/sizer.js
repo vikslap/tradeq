@@ -8,6 +8,8 @@ import { openTradeForm } from './forms.js';
 
 const DEFAULTS = { symbol: '', exchange: 'NSE', segment: 'EQ', side: 'LONG', hold: 'OVERNIGHT', entry: '', stop: '', target: '', lotSize: 1, riskPct: null, slippagePct: 0.1 };
 const cur = () => (S.sizer ||= { ...DEFAULTS });
+/** Open the calculator with a stock filled in (from the heatmap). */
+export const prefillSizer = (o) => { S.sizer = { ...DEFAULTS, ...(S.sizer || {}), stop: '', target: '', ...o }; };
 
 export function openRiskNow() {
   return S.state.trades.filter((t) => t.status === 'OPEN').reduce((a, t) => { const r = metrics(t).openRisk; return a + (r > 0 ? r : 0); }, 0);

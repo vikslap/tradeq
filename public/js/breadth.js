@@ -122,6 +122,18 @@ export async function nifty50Intraday(interval, times, onProgress = () => {}) {
 }
 
 /** Parse NSE's index-members CSV (has a "Symbol" column). */
+/** Symbol → industry from NSE's constituents CSV (it has an "Industry" column). */
+export function parseIndustries(text) {
+  const lines = String(text).replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
+  const split = (l) => { const o = []; let cur = ''; let q = false; for (const ch of l) { if (ch === '"') q = !q; else if (ch === ',' && !q) { o.push(cur.trim()); cur = ''; } else cur += ch; } o.push(cur.trim()); return o; };
+  const head = split(lines[0] || '').map((h) => h.toLowerCase());
+  const ks = head.indexOf('symbol'); const ki = head.findIndex((h) => h === 'industry' || h === 'sector');
+  if (ks < 0 || ki < 0) return {};
+  const out = {}; for (const l of lines.slice(1)) { const c = split(l); if (c[ks] && c[ki]) out[c[ks].toUpperCase()] = c[ki]; }
+  return out;
+}
+export const industries = () => S.state?.settings?.indexLists?.industries || {};
+
 export function parseMembersCsv(text) {
   const lines = String(text).replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim());
   const head = lines[0].split(',').map((h) => h.trim().replace(/"/g, '').toLowerCase());

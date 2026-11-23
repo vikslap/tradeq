@@ -2,6 +2,7 @@ import { mountBreadthLive } from './breadthlive.js';
 import { mountValuation } from './valuation-ui.js';
 import { breadthActions, mountBreadthCard } from './breadth-ui.js';
 import { pageSizer, mountSizer } from './sizer.js';
+import { pageHeatmap, mountHeatmap } from './heatmap-page.js';
 import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
 import { computeGame, weekStart, isTrading, HORIZON_LABEL } from '../game.js';
 import { computeStats } from '../stats.js';
@@ -31,20 +32,30 @@ export function route() {
 }
 
 
+// "⋯ More" floating button (phones): a bottom sheet with the extra tools.
+const sheet = () => $('#more-sheet');
+function closeSheet() { const s = sheet(); if (s) s.hidden = true; const f = $('#fab-more'); if (f) f.setAttribute('aria-expanded', 'false'); }
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#fab-more')) { const s = sheet(); s.hidden = !s.hidden; e.target.closest('#fab-more').setAttribute('aria-expanded', String(!s.hidden)); return; }
+  if (e.target.closest('[data-sheet-close]')) closeSheet();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+
 export function render() {
   if (!S.state) return;
   const { page } = route();
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === page));
   renderTop();
-  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, size: pageSizer, settings: pageSettings };
+  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, size: pageSizer, market: pageHeatmap, settings: pageSettings };
   $('#main').innerHTML = (pages[page] || pageDashboard)();
   mountEquity();
   if (page === 'dashboard') { mountBreadthLive(); mountValuation(); }
   if (page === 'practice') mountPractice();
   if (page === 'insights') mountWealth();
   if (page === 'size') mountSizer();
+  if (page === 'market') mountHeatmap();
   if (page === 'settings') mountBreadthCard();
-  const fab = $('#fab-size'); if (fab) fab.hidden = page === 'size';
+  closeSheet();
   if (page === 'settings') bindSettings();
   if (page === 'review') bindReview();
   if (S.drawerId) renderDrawer();
