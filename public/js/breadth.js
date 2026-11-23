@@ -20,6 +20,13 @@ export async function loadBreadth(force = false) {
   return S.breadth;
 }
 
+/** The Nifty 50 history saved by the same build (empty until the next rebuild). */
+export async function loadBreadth50(force = false) {
+  if (S.breadth50 && !force) return S.breadth50;
+  try { S.breadth50 = await api('/api/breadth?u=n50'); } catch { S.breadth50 = { dates: [] }; }
+  return S.breadth50;
+}
+
 export async function tokensFor(symbols) {
   if (clientSearch()) {
     const list = await listFor('NSE');
@@ -56,7 +63,7 @@ export async function buildBreadth(spans, onProgress = () => {}) {
     const years = Math.round(((to - from) / DAY - 300) / 365);
     job.total = syms.length;
     const pace = S.kite.mock ? 0 : 360; // Kite allows ~3 historical requests a second
-    const days = {}; const tails = {}; let lastDay = '';
+    const days = {}; const days50 = {}; const in50 = new Set(members50()); const tails = {}; let lastDay = '';
     for (const s of syms) {
       if (job.cancel) throw new Error('Cancelled');
       const tok = tokens[s];
@@ -68,7 +75,7 @@ export async function buildBreadth(spans, onProgress = () => {}) {
           for (const c of await rawCandles(tok, 'day', a, b)) { const d = new Date(c[0] + 330 * 60000).toISOString().slice(0, 10); if (!closes.length || closes.at(-1)[0] < d) closes.push([d, c[4]]); }
           const wait = pace - (Date.now() - t0); if (wait > 0) await sleep(wait);
         }
-        if (closes.length) { addStockToBreadth(days, closes); tails[s] = closes.slice(-199).map((x) => Math.round(x[1] * 100) / 100); lastDay = closes.at(-1)[0] > lastDay ? closes.at(-1)[0] : lastDay; } else job.failed.push(s);
+        if (closes.length) { addStockToBreadth(days, closes); if (in50.has(s)) addStockToBreadth(days50, closes); tails[s] = closes.slice(-200).map((x) => Math.round(x[1] * 100) / 100); lastDay = closes.at(-1)[0] > lastDay ? closes.at(-1)[0] : lastDay; } else job.failed.push(s);
       } catch (e) {
         if (e.code === 'TOKEN' || e.code === 'TokenException' || e.code === 'NOT_CONNECTED') throw e;
         job.failed.push(s);
@@ -82,6 +89,12 @@ export async function buildBreadth(spans, onProgress = () => {}) {
     const result = { index: 'NIFTY 500', membersAsOf: members500AsOf(), members: syms.length, missing: job.failed, built: new Date().toISOString(), years, spans,
       dates: keep(all.dates), adv: keep(all.adv), dec: keep(all.dec), unch: keep(all.unch), a50: keep(all.a50), n50: keep(all.n50), a200: keep(all.a200), n200: keep(all.n200) };
     await api('/api/breadth', { method: 'PUT', body: result });
+    // The Nifty 50 members' own breadth, over the same dates.
+    const a50 = finishBreadth(days50); const c50 = Math.max(0, a50.dates.findIndex((d) => d >= result.dates[0]));
+    const k50 = (arr) => arr.slice(c50);
+    const result50 = { index: 'NIFTY 50', members: in50.size, built: result.built, years, spans,
+      dates: k50(a50.dates), adv: k50(a50.adv), dec: k50(a50.dec), unch: k50(a50.unch), a50: k50(a50.a50), n50: k50(a50.n50), a200: k50(a50.a200), n200: k50(a50.n200) };
+    if (result50.dates.length) { await api('/api/breadth?u=n50', { method: 'PUT', body: result50 }); S.breadth50 = result50; }
     // The last ~200 closes of each stock, so the dashboard can work out live figures.
     await api('/api/breadth/tails', { method: 'PUT', body: { asOf: lastDay, closes: tails } });
     S.breadth = result; S.breadthTails = { asOf: lastDay, closes: tails };

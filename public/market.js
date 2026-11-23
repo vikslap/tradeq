@@ -133,7 +133,7 @@ export function breadthValue(b, view, date, opts = {}) {
 // ---------- live breadth (today, from one Kite quote call for all members) ----------
 
 /**
- * history: stored daily breadth; tails: { asOf, closes: { SYM: [last ≤199 daily closes] } };
+ * history: stored daily breadth; tails: { asOf, closes: { SYM: [last ≤200 daily closes] } };
  * quotes: { 'NSE:SYM': { last, prevClose } }; today: 'YYYY-MM-DD' (IST).
  * Returns today's adv/dec, % above 50/200-DMA and the McClellan oscillator.
  */
@@ -169,7 +169,7 @@ export function appendToday(history, tails, live, today) {
   const h = { ...history };
   for (const [k, v] of [['dates', today], ['adv', live.adv], ['dec', live.dec], ['unch', live.unch], ['a50', live.a50], ['n50', live.n50], ['a200', live.a200], ['n200', live.n200]]) h[k] = [...history[k], v];
   const closes = {};
-  for (const [s, tail] of Object.entries(tails.closes)) closes[s] = live.closesToday[s] != null ? [...tail, live.closesToday[s]].slice(-199) : tail;
+  for (const [s, tail] of Object.entries(tails.closes)) closes[s] = live.closesToday[s] != null ? [...tail, live.closesToday[s]].slice(-200) : tail;
   return { history: h, tails: { asOf: today, closes } };
 }
 

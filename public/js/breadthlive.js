@@ -4,7 +4,7 @@
 import { liveBreadth, appendToday, breadthMeasures, subsetHistory, subsetTails } from '../market.js';
 import { S, api } from './state.js';
 import { $, esc } from './util.js';
-import { loadBreadth, members50 } from './breadth.js';
+import { loadBreadth, loadBreadth50, members50 } from './breadth.js';
 import { intradayShell, mountIntraday, wireIntraday } from './intraday.js';
 
 // Which index the card shows: the full Nifty 500 or just the Nifty 50 members.
@@ -55,7 +55,7 @@ function html(L, history, u = 'n500') {
   return `<div class="kpis k4">
     ${tile('Today', `<span class="pos">${L.adv}↑</span> <span class="neg">${L.dec}↓</span>`, `${L.unch} unchanged · ${L.n} ${UNAME[u]} stocks`)}
     ${tile('% above 50-DMA', L.pct50 == null ? '—' : `${Math.round(L.pct50)}%`, `<b class="${c50}">${t50}</b>`, m ? spark(m.pct50, L.pct50) : '')}
-    ${tile('% above 200-DMA', L.pct200 == null ? '—' : `${Math.round(L.pct200)}%`, `<b class="${c200}">${t200}</b>`, m && u === 'n500' ? spark(m.pct200, L.pct200) : '')}
+    ${tile('% above 200-DMA', L.pct200 == null ? '—' : `${Math.round(L.pct200)}%`, `<b class="${c200}">${t200}</b>`, m && m.pct200.some((v) => v != null) ? spark(m.pct200, L.pct200) : (u === 'n50' ? '<div class="sub" style="font-size:11px;margin-top:6px">Line appears after the next rebuild in <a href="#/settings">Settings → Market breadth</a></div>' : ''))}
     ${tile('McClellan oscillator', L.mcclellan == null ? '—' : `${L.mcclellan >= 0 ? '+' : ''}${Math.abs(L.mcclellan) < 10 ? L.mcclellan.toFixed(1) : Math.round(L.mcclellan)}`, L.mcclellan == null ? 'needs 39+ days of history' : `<b class="${L.mcclellan >= 0 ? 'pos' : 'neg'}">breadth momentum ${L.mcclellan >= 0 ? 'up' : 'down'}</b>`)}
   </div>
   ${L.staleDays > 5 ? `<div class="note warn" style="margin-top:10px"><span>The stored history is ${L.staleDays} days old, so the 50/200-day figures are approximate. Rebuild in <a href="#/settings">Settings → Market breadth</a>.</span></div>` : ''}`;
@@ -99,8 +99,11 @@ async function refresh() {
     const today = todayIST();
     const L = liveBreadth(history, tails, quotes, today);
     // Nifty 50: the same quotes, the member subset of the stored closes.
+    // History: the one saved by the breadth build when there is one (full 50/200-day lines),
+    // otherwise worked out from the stored closes (no 200-day line: ~199 closes per stock).
     const m50 = members50();
-    if (S._h50src !== tails) { S._h50 = subsetHistory(history, tails, m50); S._t50 = subsetTails(tails, m50); S._h50src = tails; }
+    const saved50 = await loadBreadth50();
+    if (S._h50src !== tails || S._h50saved !== saved50) { S._h50 = saved50?.dates?.length ? saved50 : subsetHistory(history, tails, m50); S._t50 = subsetTails(tails, m50); S._h50src = tails; S._h50saved = saved50; }
     const L50 = liveBreadth(S._h50, S._t50, quotes, today);
     S.liveBreadthAt = Date.now();
     S.liveBreadthData = { n500: [L, history], n50: [L50, S._h50], sub: marketOpen() ? `live · ${istNow().toISOString().slice(11, 16)} IST · updates every minute` : 'as of the last close' };
@@ -113,6 +116,7 @@ async function refresh() {
         await api('/api/breadth', { method: 'PUT', body: next.history });
         await api('/api/breadth/tails', { method: 'PUT', body: next.tails });
         S.breadth = next.history; S.breadthTails = next.tails;
+        if (saved50?.dates?.length) { const n50 = appendToday(saved50, S._t50, L50, today); if (n50) { await api('/api/breadth?u=n50', { method: 'PUT', body: n50.history }); S.breadth50 = n50.history; } }
       }
     }
   } catch (e) {

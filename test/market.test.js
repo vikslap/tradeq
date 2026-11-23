@@ -71,7 +71,7 @@ test('live breadth from quotes + stored tails, and appending the day after the c
   assert.ok(L.mcclellan < 0); // today's net (0) is below the steady +1
   const next = appendToday(history, tails, L, '2026-11-21');
   assert.equal(next.history.dates.at(-1), '2026-11-21');
-  assert.equal(next.tails.closes.UP.at(-1), 110); assert.equal(next.tails.closes.UP.length, 199);
+  assert.equal(next.tails.closes.UP.at(-1), 110); assert.equal(next.tails.closes.UP.length, 200);
   assert.equal(appendToday(next.history, next.tails, L, '2026-11-21'), null); // not twice
 });
 
