@@ -79,6 +79,15 @@ function paint() {
   body.innerHTML = S.valHtml;
 }
 
+/** Today's P/E (live estimate in market hours) and the median for the chosen window — for the dashboard strip. */
+export async function valuationBrief() {
+  if (!S.valSeries) { if (S._valFailed) return null; try { S.valSeries = await api('/api/valuation'); } catch { S._valFailed = true; return null; } }
+  const sum = valuationSummary(S.valSeries); if (!sum) return null;
+  const w = sum.windows.find((x) => x.key === getWin()) || sum.windows.find((x) => x.key === '10y') || sum.windows.at(-1);
+  if (!w) return null;
+  return { pe: livePe(sum, S.valQuote) ?? sum.pe, median: w.median };
+}
+
 export async function mountValuation(refresh = false) {
   wire();
   const body = $('#mkt-val-body'); if (!body) return;
@@ -89,5 +98,6 @@ export async function mountValuation(refresh = false) {
     return;
   }
   paint();
+  if (S.valQuote && Date.now() - (S.liveQuotesAt || 0) < 70000) return;
   try { S.valQuote = (await api(`/api/kite/quote?i=${encodeURIComponent('NSE:NIFTY 50')}`)).quotes?.['NSE:NIFTY 50'] || null; paint(); } catch { /* Kite not connected: show NSE's figure */ }
 }

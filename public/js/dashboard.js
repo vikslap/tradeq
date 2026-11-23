@@ -1,5 +1,4 @@
-import { breadthCardShell } from './breadthlive.js';
-import { valuationCardShell } from './valuation-ui.js';
+import { marketStripShell } from './breadthlive.js';
 import { metrics, tradeKey, isLT, isTrading, reviewStatus } from '../game.js';
 import { computeStats, investmentStats } from '../stats.js';
 import { mountEquityChart } from '../tradechart.js';
@@ -22,7 +21,7 @@ export function pageDashboard() {
   const discColor = g.discipline == null ? 'var(--faint)' : g.discipline >= 80 ? 'var(--green)' : g.discipline >= 60 ? 'var(--gold)' : 'var(--red)';
   const quests = [...g.quests, ...syncQuest()];
   const doneQ = quests.filter((q) => q.done).length;
-  return `<div class="dash2">
+  return `${marketStripShell()}<div class="dash2">
   <div class="dash-main">
     <div class="kpis k6 o-kpis" id="kpis">${kpiTiles()}</div>
     <section class="card o-open">
@@ -51,8 +50,6 @@ export function pageDashboard() {
         </div>
       </div>
     </section>
-    ${breadthCardShell()}
-    ${valuationCardShell()}
     <section class="card o-quests">
       <header class="card-h"><h3>Today's quests</h3><span class="sub">${doneQ}/${quests.length} done · clean day = +20 XP</span></header>
       <div class="quests">${quests.map(questHtml).join('')}</div>

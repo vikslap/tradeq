@@ -6,6 +6,7 @@ import { S, api } from './state.js';
 import { $, esc } from './util.js';
 import { loadBreadth, loadBreadth50, members50 } from './breadth.js';
 import { intradayShell, mountIntraday, wireIntraday } from './intraday.js';
+import { valuationBrief } from './valuation-ui.js';
 
 // Which index the card shows: the full Nifty 500 or just the Nifty 50 members.
 const UKEY = 'tq-breadth-universe';
@@ -19,7 +20,8 @@ const marketOpen = () => { const d = istNow(); const m = d.getUTCHours() * 60 + 
 const afterClose = () => { const d = istNow(); return d.getUTCDay() % 6 !== 0 && d.getUTCHours() * 60 + d.getUTCMinutes() >= 15 * 60 + 45; };
 
 const uToggle = (u) => `<div class="seg seg-sm" role="group" aria-label="Index">${['n500', 'n50'].map((k) => `<label><input type="radio" name="br-universe" value="${k}" data-br-universe ${k === u ? 'checked' : ''}><span>${UNAME[k]}</span></label>`).join('')}</div>`;
-export const breadthCardShell = () => { const u = getUniverse(); return `<section class="card o-breadth" id="mkt-breadth"><header class="card-h"><h3>📊 Market breadth</h3>${uToggle(u)}</header><div class="sub" id="mkt-breadth-sub" style="margin:-8px 0 8px"></div><div id="mkt-breadth-body">${S.liveBreadthHtml || '<div class="empty-sm">Loading…</div>'}</div>${intradayShell()}</section>`; };
+export const universeToggle = () => uToggle(getUniverse());
+export const breadthCardShell = ({ toggle = true } = {}) => { const u = getUniverse(); return `<section class="card o-breadth" id="mkt-breadth"><header class="card-h"><h3>📊 Market breadth</h3>${toggle ? uToggle(u) : ''}</header><div class="sub" id="mkt-breadth-sub" style="margin:-8px 0 8px"></div><div id="mkt-breadth-body">${S.liveBreadthHtml || '<div class="empty-sm">Loading…</div>'}</div>${intradayShell()}</section>`; };
 
 async function loadTails() {
   if (S.breadthTails) return S.breadthTails;
@@ -27,13 +29,37 @@ async function loadTails() {
   return S.breadthTails;
 }
 
+// On the Market page the heatmap needs volumes too, so ask for full quotes there and share them.
 async function quotesFor(syms) {
-  const out = {};
-  for (let i = 0; i < syms.length; i += 250) {
-    const keys = syms.slice(i, i + 250).map((s) => `NSE:${s}`).join(',');
-    Object.assign(out, (await api(`/api/kite/quote?i=${encodeURIComponent(keys)}`)).quotes);
+  const full = !!$('#heat-map'); const out = {};
+  const keys = [...syms.map((s) => `NSE:${s}`), 'NSE:NIFTY 50', 'NSE:NIFTY 500'];
+  for (let i = 0; i < keys.length; i += 250) {
+    Object.assign(out, (await api(`/api/kite/quote?${full ? 'full=1&' : ''}i=${encodeURIComponent(keys.slice(i, i + 250).join(','))}`)).quotes);
   }
+  S.liveQuotes = out; S.liveQuotesAt = Date.now(); S.liveQuotesFull = full;
+  S.valQuote = out['NSE:NIFTY 50'] || S.valQuote;
+  document.dispatchEvent(new Event('tq:quotes'));
   return out;
+}
+
+// ---------- dashboard: one-line market summary (tap → Market page) ----------
+export const marketStripShell = () => `<a class="mkt-strip2" id="mkt-strip" href="#/market" title="Open the Market page">${S.stripHtml || '<span class="muted">📊 Market · loading…</span>'}</a>`;
+async function paintStrip() {
+  const el = $('#mkt-strip'); if (!el) return;
+  const d = S.liveBreadthData; const u = getUniverse();
+  const idx = S.liveQuotes?.[u === 'n50' ? 'NSE:NIFTY 50' : 'NSE:NIFTY 500'];
+  const f = (v, dp = 1) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(dp)}`);
+  const parts = [];
+  if (idx?.last) { const c = idx.changePct * 100; parts.push(`<b>${UNAME[u]}</b> <span class="mono">${idx.last.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</span> <b class="${c >= 0 ? 'pos' : 'neg'}">${f(c, 2)}%</b>`); }
+  if (d) {
+    const [L] = d[u];
+    parts.push(`<span class="pos">${L.adv}↑</span> <span class="neg">${L.dec}↓</span>`);
+    if (L.pct50 != null) parts.push(`<span class="${L.pct50 >= 50 ? 'pos' : 'neg'}">${Math.round(L.pct50)}%</span> above 50-DMA`);
+    if (L.mcclellan != null) parts.push(`McClellan <span class="${L.mcclellan >= 0 ? 'pos' : 'neg'}">${f(L.mcclellan)}</span>`);
+  }
+  try { const v = await valuationBrief(); if (v) parts.push(`P/E <span class="mono">${v.pe.toFixed(1)}</span> <span class="muted">(median ${v.median.toFixed(1)})</span>`); } catch { /* no valuation data */ }
+  S.stripHtml = parts.length ? `<span class="mkt-ic">📊</span>${parts.map((p) => `<span>${p}</span>`).join('<i>·</i>')}<span class="mkt-go">Market →</span>` : '<span class="muted">📊 Market — connect Kite for live figures</span><span class="mkt-go">Market →</span>';
+  el.innerHTML = S.stripHtml;
 }
 
 const zone50 = (v) => (v >= 80 ? ['neg', 'stretched'] : v <= 20 ? ['pos', 'washed out'] : v >= 50 ? ['pos', 'more stocks in uptrends'] : ['neg', 'more stocks in downtrends']);
@@ -62,20 +88,22 @@ function html(L, history, u = 'n500') {
 }
 
 let timer = null; let busy = false;
+const onPage = () => $('#mkt-breadth-body') || $('#mkt-strip');
 export async function mountBreadthLive() {
   wire();
-  const body = $('#mkt-breadth-body'); if (!body) { clearInterval(timer); timer = null; return; }
-  paintBreadth();
+  if (!onPage()) { clearInterval(timer); timer = null; return; }
+  paintBreadth(); paintStrip();
   mountIntraday(getUniverse());
-  if (!timer) timer = setInterval(() => { if (!$('#mkt-breadth-body')) { clearInterval(timer); timer = null; } else if (marketOpen()) { refresh(); mountIntraday(getUniverse(), true); } }, 60000);
-  if (!S.liveBreadthAt || Date.now() - S.liveBreadthAt > 55000) refresh();
+  if (!timer) timer = setInterval(() => { if (!onPage()) { clearInterval(timer); timer = null; } else if (marketOpen()) { refresh(); mountIntraday(getUniverse(), true); } }, 60000);
+  // Full quotes are needed on the Market page; a recent light fetch from the dashboard won't do.
+  if (!S.liveBreadthAt || Date.now() - S.liveBreadthAt > 55000 || ($('#heat-map') && !S.liveQuotesFull)) await refresh();
 }
 
 const set = (h, sub = '') => { S.liveBreadthHtml = h; const b = $('#mkt-breadth-body'); if (b) b.innerHTML = h; const s = $('#mkt-breadth-sub'); if (s) s.textContent = sub; };
 function paintBreadth() {
   const d = S.liveBreadthData; if (!d) return;
   const u = getUniverse(); const [L, h] = d[u];
-  set(html(L, h, u), d.sub);
+  set(html(L, h, u), d.sub); paintStrip();
 }
 
 let wired = false;
@@ -91,9 +119,10 @@ function wire() {
 async function refresh() {
   if (busy) return; busy = true;
   try {
-    if (!S.kite.connected) return set('<div class="empty-sm">Connect Kite to see live breadth.</div>');
+    if (!S.kite.connected) { paintStrip(); return set('<div class="empty-sm">Connect Kite to see live breadth.</div>'); }
     const [history, tails] = await Promise.all([loadBreadth(), loadTails()]);
     const syms = Object.keys(tails.closes || {});
+    if (!syms.length) { await quotesFor([]).catch(() => {}); paintStrip(); }
     if (!syms.length) return set(`<div class="empty-sm">${history?.dates?.length ? 'Rebuild' : 'Build'} the breadth history once in <a href="#/settings">Settings → Market breadth</a> to switch this on.</div>`);
     const quotes = await quotesFor(syms);
     const today = todayIST();

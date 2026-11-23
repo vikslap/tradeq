@@ -6,6 +6,8 @@ import { S, api } from './state.js';
 import { $, esc, nf2 } from './util.js';
 import { members500, members50, industries, loadBreadth } from './breadth.js';
 import { prefillSizer } from './sizer.js';
+import { breadthCardShell, mountBreadthLive } from './breadthlive.js';
+import { valuationCardShell, mountValuation } from './valuation-ui.js';
 
 const UKEY = 'tq-breadth-universe'; // shared with the dashboard breadth card
 const SKEY = 'tq-heat-size';
@@ -19,17 +21,33 @@ const seg = (name, opts, val) => `<div class="seg seg-sm">${opts.map(([v, l]) =>
 
 const H = { quotes: null, at: 0, u: null, drill: null, sel: null, timer: null, ro: null };
 
-export function pageHeatmap() {
+// One switch drives the whole page: heatmap, breadth tiles and the intraday chart.
+const useg = (u) => `<div class="seg seg-sm" role="group" aria-label="Index">${[['n50', 'Nifty 50'], ['n500', 'Nifty 500']].map(([v, l]) => `<label><input type="radio" name="mkt-universe" value="${v}" ${v === u ? 'checked' : ''} data-heat="universe" data-br-universe><span>${l}</span></label>`).join('')}</div>`;
+
+export function pageMarket() {
   const u = get(UKEY, 'n500') === 'n50' ? 'n50' : 'n500';
-  return `<div class="page-h"><div><h1>🟩 Market heatmap</h1><p>Today's move for every stock — green up, red down, bigger tiles traded more.</p></div>
-    <div class="row" style="gap:8px;flex-wrap:wrap">${seg('universe', [['n50', 'Nifty 50'], ['n500', 'Nifty 500']], u)}${seg('size', [['value', 'By traded value'], ['equal', 'Equal']], get(SKEY, 'value'))}</div></div>
-  <section class="card heat-card">
+  return `<div class="page-h"><div><h1>📊 Market</h1><p>How the whole market is doing today — breadth, the index through the day, every stock's move, and valuation.</p></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">${useg(u)}</div></div>
+  <div class="mkt-page">
+    <div class="mkt-side">${breadthCardShell({ toggle: false })}${valuationCardShell()}</div>
+    <div class="mkt-main">${heatCard()}</div>
+  </div>`;
+}
+
+export async function mountMarket() {
+  await mountBreadthLive().catch(() => {});
+  mountValuation();
+  mountHeatmap();
+}
+
+const heatCard = () => `
+  <section class="card heat-card o-heat">
+    <header class="card-h"><h3>🟩 Heatmap</h3>${seg('size', [['value', 'By traded value'], ['equal', 'Equal size']], get(SKEY, 'value'))}</header>
     <div class="heat-top"><div id="heat-summary" class="sub">Loading…</div><div class="heat-legend" aria-hidden="true"><span>−3%</span><i></i><span>+3%</span></div></div>
     <div id="heat-crumb"></div>
     <div id="heat-map" class="heat-map" role="list"></div>
     <div id="heat-detail"></div>
   </section>`;
-}
 
 function stocksNow() {
   const u = get(UKEY, 'n500') === 'n50' ? 'n50' : 'n500';
@@ -134,6 +152,10 @@ async function load(force = false) {
   if (!force && H.quotes && H.u === u && Date.now() - H.at < 55000) return draw();
   if (!S.kite?.connected) { $('#heat-summary').innerHTML = 'Connect Kite to see the heatmap.'; return; }
   const syms = u === 'n50' ? members50() : members500();
+  // Reuse the quotes the breadth card just fetched (one request for the whole page).
+  if (S.liveQuotesFull && Date.now() - S.liveQuotesAt < 55000 && syms.filter((s) => S.liveQuotes[`NSE:${s}`]).length > syms.length * 0.9) {
+    H.quotes = S.liveQuotes; H.at = S.liveQuotesAt; H.u = u; return draw();
+  }
   const out = {};
   for (let i = 0; i < syms.length; i += 250) {
     const keys = syms.slice(i, i + 250).map((s) => `NSE:${s}`).join(',');
@@ -146,9 +168,10 @@ async function load(force = false) {
 let wired = false;
 function wire() {
   if (wired) return; wired = true;
+  document.addEventListener('tq:quotes', () => { if ($('#heat-map') && S.liveQuotesFull) { H.quotes = S.liveQuotes; H.at = S.liveQuotesAt; H.u = stocksNow().u; draw(); } });
   document.addEventListener('change', (e) => {
     const k = e.target.dataset?.heat; if (!k) return;
-    if (k === 'universe') { put(UKEY, e.target.value); H.drill = null; H.sel = null; load(true); }
+    if (k === 'universe') { put(UKEY, e.target.value); H.drill = null; H.sel = null; load(true).catch(() => {}); }
     if (k === 'size') { put(SKEY, e.target.value); draw(); }
   });
   document.addEventListener('click', (e) => {
@@ -169,5 +192,5 @@ export async function mountHeatmap() {
   try { await load(); } catch (e) { const s = $('#heat-summary'); if (s) s.textContent = `Couldn't load quotes: ${e.message}`; }
   H.ro?.disconnect(); H.ro = new ResizeObserver(() => draw()); H.ro.observe(box);
   clearInterval(H.timer);
-  H.timer = setInterval(() => { if (!$('#heat-map')) { clearInterval(H.timer); H.ro?.disconnect(); return; } if (marketOpen()) load(true).catch(() => {}); }, 60000);
+  H.timer = setInterval(() => { if (!$('#heat-map')) { clearInterval(H.timer); H.ro?.disconnect(); return; } if (marketOpen() && Date.now() - (S.liveQuotesAt || 0) > 75000) load(true).catch(() => {}); }, 60000);
 }
