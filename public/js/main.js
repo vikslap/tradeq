@@ -3,6 +3,7 @@ import { breadthActions, mountBreadthCard } from './breadth-ui.js';
 import { pageSizer, mountSizer } from './sizer.js';
 import { pageMarket, mountMarket } from './heatmap-page.js';
 import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
+import { mountVsTile, mountVsSection } from './vsindex.js';
 import { computeGame, weekStart, isTrading, HORIZON_LABEL } from '../game.js';
 import { computeStats } from '../stats.js';
 import { handleDrawClick } from '../drawing.js';
@@ -48,9 +49,9 @@ export function render() {
   const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, size: pageSizer, market: pageMarket, settings: pageSettings };
   $('#main').innerHTML = (pages[page] || pageDashboard)();
   mountEquity();
-  if (page === 'dashboard') mountBreadthLive();
+  if (page === 'dashboard') { mountBreadthLive(); mountVsTile(); }
   if (page === 'practice') mountPractice();
-  if (page === 'insights') mountWealth();
+  if (page === 'insights') { mountWealth(); mountVsSection(); }
   if (page === 'size') mountSizer();
   if (page === 'market') mountMarket();
   if (page === 'settings') mountBreadthCard();

@@ -1,4 +1,5 @@
 import { wealthSection, yearlySection } from './wealth.js';
+import { vsSectionShell } from './vsindex.js';
 import { dayKey, weekStart, MISTAKES, mistakeName, HORIZON_LABEL } from '../game.js';
 import { computeStats, groupBy, rHistogram } from '../stats.js';
 import { $, esc, num, sum, money, compact, pct, rfmt, cls, hold, SEGMENTS } from './util.js';
@@ -23,7 +24,7 @@ export function pageInsights() {
   const st = computeStats(yearTrades(viewTrades()), S.state.groups); const g = S.game;
   const yr = S.insYear && S.insYear !== 'all' ? S.insYear : null;
   const head = `<div class="page-h"><div><h1>Insights${yr ? ` <span class="pill gold" style="font-size:13px;vertical-align:middle">${yr.replace('FY', 'FY ')}</span>` : ''}</h1><p>${yr ? `Trades closed between ${yr === 'all' ? '' : `1 Apr 20${yr.slice(2, 4)} and 31 Mar 20${yr.slice(5, 7)}`}.` : 'Where your edge lives — and where it leaks.'}</p></div><div class="row" style="gap:8px;flex-wrap:wrap">${yearSelect()}${viewSeg()}</div></div>`;
-  const money_ = wealthSection() + yearlySection();
+  const money_ = vsSectionShell() + wealthSection() + yearlySection();
   if (!st.count) return `${head}${money_}<div class="card empty"><div class="big">📊</div><h2>${yr ? `No closed trades in ${yr} for this view` : 'Close a few trades to unlock insights'}</h2><p>You'll see P&L by setup, weekday and emotion, your R-multiple distribution, and exactly what your mistakes cost you.</p></div>`;
   const closed = st.closed;
   const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

@@ -685,3 +685,24 @@ kbd { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px;
 .mkt-strip2 .mkt-ic { font-size: 15px; }
 .mkt-strip2 .mkt-go { margin-left: auto; color: var(--accent); font-weight: 600; white-space: nowrap; }
 @media (min-width: 1101px) { .mkt-side .kpis.k4 { grid-template-columns: 1fr 1fr; } }
+
+/* Dashboard: you vs Nifty 50 */
+.vs-head { display: flex; flex-direction: column; margin-bottom: 10px; }
+.vs-head .mono { font-size: 26px; font-weight: 700; }
+.vs-head small { color: var(--muted); font-size: 12px; }
+.vs-rows > div { display: grid; grid-template-columns: 1fr auto; column-gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.vs-rows span { color: var(--muted); }
+.vs-rows b { text-align: right; }
+.vs-rows em { grid-column: 2; text-align: right; font-style: normal; font-size: 11.5px; color: var(--muted); }
+@media (max-width: 1280px) { .o-vs { order: 2; } }
+.vs-tbl td .sub { font-size: 11px; }
+@media (max-width: 760px) {
+  .vs-tbl thead, .vs-tbl td:nth-child(2), .vs-tbl td:nth-child(3), .vs-tbl td:nth-child(7) { display: none; }
+  .vs-tbl, .vs-tbl tbody { display: block; min-width: 0 !important; }
+  .table-wrap:has(.vs-tbl) { margin: 0; padding: 0; overflow: visible; }
+  .vs-tbl td:first-child { position: static; background: none; }
+  .vs-tbl tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 8px; padding: 10px 2px; border-bottom: 1px solid var(--border); }
+  .vs-tbl td { display: block; padding: 0; border: 0; text-align: left !important; font-size: 13px; }
+  .vs-tbl td:first-child { grid-column: 1 / -1; margin-bottom: 4px; }
+  .vs-tbl td[data-l]::before { content: attr(data-l); display: block; font: 600 10px/1.3 var(--sans, inherit); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+}

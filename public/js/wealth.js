@@ -88,6 +88,14 @@ function yearSection(fy) {
   </section>`;
 }
 
+// The account comparison is only as fresh as the last ledger import.
+function staleNote(ledger) {
+  const last = ledger.reduce((m, r) => (r.date > m ? r.date : m), '');
+  const age = last ? Math.round((Date.now() - Date.parse(last)) / DAY) : null;
+  if (age == null || age <= 35) return '';
+  return `<div class="note warn" style="margin-bottom:10px"><span>Your ledger ends on <b>${fmtDate(last)}</b> (${age} days ago), so money added or withdrawn since then and recent fees aren't counted. <button class="btn sm" data-action="ledger-import">⬆ Import the latest ledger</button></span></div>`;
+}
+
 export function wealthSection() {
   if (S.insYear && S.insYear !== 'all') return yearSection(S.insYear);
   const ledger = S.state.ledger || [];
@@ -116,7 +124,8 @@ export function wealthSection() {
     <button class="btn sm" type="submit">${acct?.source === 'manual' ? 'Update' : 'Set'}</button>${acct?.source === 'manual' ? '<button class="btn sm ghost" type="button" data-action="acct-value-clear">Use Kite</button>' : ''}</form>
     <div class="hint">${acct?.source === 'kite' ? `Stocks, ETFs & SGBs ${rs0(acct.parts.stocks)} + cash ${rs0(acct.parts.cash)}.${acct.parts.mf ? ` Mutual funds (${rs0(acct.parts.mf)}) are left out — SIPs paid from your bank never pass through the ledger, so their cost isn't known here.` : ''} ${scope === 'equity' ? ' F&O is counted as a separate pot.' : ''} Type a figure to override.` : acct ? `Entered ${fmtDate(acct.date)}. Connect Kite to fill it automatically.` : 'Connect Kite, or type the value of your stock holdings + cash from Kite (leave mutual funds out).'}</div></div>`;
   return `<section class="card" style="margin-bottom:16px" id="wealth-card">
-    <header class="card-h" style="flex-wrap:wrap;gap:8px"><h3>Am I beating an index fund?</h3><span class="row" style="gap:10px;flex-wrap:wrap"><span class="sub">${esc(span)} · ${ledger.length} ledger entries</span>${seg}</span></header>
+    <header class="card-h" style="flex-wrap:wrap;gap:8px"><h3>Whole account vs an index fund</h3><span class="row" style="gap:10px;flex-wrap:wrap"><span class="sub">${esc(span)} · ${ledger.length} ledger entries</span>${seg}</span></header>
+    ${staleNote(ledger)}
     <div class="kpis k4" style="margin-bottom:12px">
       <div class="kpi"><div class="k">${putLabel[0]}</div><div class="v mono ${scope === 'fno' ? cls(-putIn) : ''}">${rs0(putIn)}</div><div class="s">${putLabel[1]}</div></div>
       <div class="kpi"><div class="k">${scope === 'fno' ? 'F&O result' : 'Your gain'}</div><div class="v mono ${cls(you?.gain)}">${you ? money(you.gain, { sign: true, dp: 0 }) : '—'}</div><div class="s">${you?.xirr != null && scope !== 'fno' ? `<b class="${cls(you.xirr)}">${pct(you.xirr)}</b> a year (XIRR)` : scope === 'fno' ? 'F&O result after charges' : 'needs value today'}</div></div>
