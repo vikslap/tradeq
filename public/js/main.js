@@ -2,6 +2,7 @@ import { mountBreadthLive } from './breadthlive.js';
 import { breadthActions, mountBreadthCard } from './breadth-ui.js';
 import { pageSizer, mountSizer } from './sizer.js';
 import { pageMarket, mountMarket } from './heatmap-page.js';
+import { pagePaper, mountPaper } from './paper.js';
 import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
 import { mountVsTile, mountVsSection } from './vsindex.js';
 import { computeGame, weekStart, isTrading, HORIZON_LABEL } from '../game.js';
@@ -46,7 +47,7 @@ export function render() {
   const { page } = route();
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === page));
   renderTop();
-  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, size: pageSizer, market: pageMarket, settings: pageSettings };
+  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, size: pageSizer, market: pageMarket, paper: pagePaper, settings: pageSettings };
   $('#main').innerHTML = (pages[page] || pageDashboard)();
   mountEquity();
   if (page === 'dashboard') { mountBreadthLive(); mountVsTile(); }
@@ -54,6 +55,7 @@ export function render() {
   if (page === 'insights') { mountWealth(); mountVsSection(); }
   if (page === 'size') mountSizer();
   if (page === 'market') mountMarket();
+  if (page === 'paper') mountPaper();
   if (page === 'settings') mountBreadthCard();
   closeSheet();
   if (page === 'settings') bindSettings();

@@ -21,3 +21,8 @@ database_id = "7fd5790d-8c45-4ecb-8764-a76033bc6bc0"
 #   APP_PASSWORD      the password for logging in to TradeQuest (8+ characters)
 #   KITE_API_KEY      from developers.kite.trade (optional)
 #   KITE_API_SECRET   from developers.kite.trade (optional)
+
+# Paper trading: run the order engine every minute on weekdays, 08:30–00:29 IST (03:00–18:59 UTC),
+# so pending paper orders, stops and MIS square-offs happen even with no page open.
+[triggers]
+crons = ["* 3-18 * * 1-5"]

@@ -2,7 +2,7 @@
 // server and the browser (the hosted version searches in the browser, because
 // the full list is too big to parse inside a Cloudflare Worker on every request).
 
-export const INSTRUMENT_EXCHANGES = ['NSE', 'BSE', 'NFO', 'MCX'];
+export const INSTRUMENT_EXCHANGES = ['NSE', 'BSE', 'NFO', 'BFO', 'MCX'];
 
 export function segmentFor(exchange, type, symbol = '') {
   if (exchange === 'NSE' || exchange === 'BSE') return 'EQ';
@@ -29,14 +29,14 @@ export function parseInstruments(csv) {
   const lines = csv.split(/\r?\n/).filter(Boolean);
   const head = splitCsvLine(lines[0]);
   const ix = (k) => head.indexOf(k);
-  const [K, S, N, E, T, L, X] = ['instrument_token', 'tradingsymbol', 'name', 'exchange', 'instrument_type', 'lot_size', 'expiry'].map(ix);
+  const [K, S, N, E, T, L, X, TS] = ['instrument_token', 'tradingsymbol', 'name', 'exchange', 'instrument_type', 'lot_size', 'expiry', 'tick_size'].map(ix);
   return lines.slice(1).map((l) => {
     const c = splitCsvLine(l);
-    return { k: Number(c[K]), s: c[S], n: c[N], e: c[E], t: c[T], l: Number(c[L]) || 1, x: c[X] || '' };
+    return { k: Number(c[K]), s: c[S], n: c[N], e: c[E], t: c[T], l: Number(c[L]) || 1, x: c[X] || '', ts: TS >= 0 ? Number(c[TS]) || 0.05 : 0.05 };
   });
 }
 
-const EX_RANK = { NSE: 0, NFO: 1, MCX: 2, BSE: 3 };
+const EX_RANK = { NSE: 0, NFO: 1, MCX: 2, BSE: 3, BFO: 4 };
 export function searchInstruments(list, q, limit = 15) {
   const Q = String(q || '').toUpperCase().trim();
   if (!Q) return [];
@@ -56,9 +56,10 @@ export function searchInstruments(list, q, limit = 15) {
   }
   hits.sort((a, b) => a.score - b.score || (EX_RANK[a.i.e] ?? 9) - (EX_RANK[b.i.e] ?? 9) || (a.i.x || '').localeCompare(b.i.x || '') || a.i.s.length - b.i.s.length);
   return hits.slice(0, limit).map(({ i }) => ({
-    symbol: i.s, exchange: i.e, name: i.n, type: i.t, lotSize: i.l, expiry: i.x || null, segment: segmentFor(i.e, i.t, i.s),
+    symbol: i.s, exchange: i.e, name: i.n, type: i.t, lotSize: i.l, expiry: i.x || null, segment: segmentFor(i.e, i.t, i.s), token: i.k || null, tickSize: i.ts || 0.05,
   }));
 }
 
 /** Parse one exchange's CSV as the app keeps it (BSE: cash equity only). */
-export const parseExchange = (ex, csv) => parseInstruments(String(csv)).filter((i) => !(ex === 'BSE' && i.t !== 'EQ'));
+// BFO: index futures only (Sensex, Bankex) — the option strikes would be a huge download for nothing.
+export const parseExchange = (ex, csv) => parseInstruments(String(csv)).filter((i) => !(ex === 'BSE' && i.t !== 'EQ') && !(ex === 'BFO' && i.t !== 'FUT'));

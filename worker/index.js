@@ -4,6 +4,7 @@
 import * as store from '../lib/store.js';
 import { createKite } from '../lib/kite.js';
 import { createApi } from '../lib/api.js';
+import { paperCron } from '../lib/paper-api.js';
 
 const SCHEMA = [
   'CREATE TABLE IF NOT EXISTS docs (id TEXT PRIMARY KEY, seq INTEGER NOT NULL, body TEXT NOT NULL)',
@@ -139,6 +140,21 @@ async function readBody(req) {
 }
 
 export default {
+  // Every minute in market hours (see wrangler.toml): move paper orders along even when no page is open.
+  async scheduled(event, env, ctx) {
+    if (!env.DB) return;
+    const db = env.DB; await setup(db);
+    const row = await db.prepare("SELECT value FROM kv WHERE key = 'kite-session'").first();
+    const storage = { get: async () => (row ? JSON.parse(row.value) : null), put: async () => {}, del: async () => {} };
+    const kite = createKite({ apiKey: env.KITE_API_KEY, apiSecret: env.KITE_API_SECRET, storage, mock: /^(1|true|yes)$/i.test(env.KITE_MOCK || ''), clientSearch: true, getTrades: () => [] });
+    await kite.init();
+    if (!kite.status().connected) return;
+    const cache = {
+      get: async (k) => { const r = await db.prepare('SELECT value FROM kv WHERE key = ?').bind('cache|' + k).first(); return r ? JSON.parse(r.value) : null; },
+      put: (k, v) => db.prepare('INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)').bind('cache|' + k, JSON.stringify(v)).run(),
+    };
+    ctx.waitUntil(paperCron({ kite, cache }).catch((e) => console.error('paper cron', e)));
+  },
   async fetch(req, env) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
@@ -167,13 +183,14 @@ export default {
       // Kite pass-through requests don't touch the journal: answer them straight away,
       // outside the journal queue (breadth building sends ~1,000 of these).
       // The Nifty P/E fetch (up to ~28 calls to NSE the first time) goes this way too.
-      if (['/api/kite/raw-candles', '/api/kite/tokens', '/api/valuation'].includes(url.pathname) || url.pathname.startsWith('/api/kite/instruments/')) {
+      // Paper trading too: it keeps its own account in kv and polls every couple of seconds.
+      if (['/api/kite/raw-candles', '/api/kite/tokens', '/api/valuation'].includes(url.pathname) || url.pathname.startsWith('/api/kite/instruments/') || url.pathname.startsWith('/api/paper')) {
         const row = await db.prepare("SELECT value FROM kv WHERE key = 'kite-session'").first();
         const storage = { get: async () => (row ? JSON.parse(row.value) : null), put: async () => {}, del: (k) => db.prepare('DELETE FROM kv WHERE key = ?').bind(k).run() };
         const kite = createKite({ apiKey: env.KITE_API_KEY, apiSecret: env.KITE_API_SECRET, storage, mock: /^(1|true|yes)$/i.test(env.KITE_MOCK || ''), clientSearch: true, getTrades: () => [] });
         await kite.init();
         const body0 = req.method === 'POST' || req.method === 'PUT' ? await readBody(req) : {};
-        const kvCache = url.pathname === '/api/valuation' ? {
+        const kvCache = url.pathname === '/api/valuation' || url.pathname.startsWith('/api/paper') ? {
           get: async (k) => { const r = await db.prepare('SELECT value FROM kv WHERE key = ?').bind('cache|' + k).first(); return r ? JSON.parse(r.value) : null; },
           put: (k, v) => db.prepare('INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)').bind('cache|' + k, JSON.stringify(v)).run(),
         } : { get: async () => null, put: async () => {} };

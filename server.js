@@ -10,6 +10,7 @@ import * as store from './lib/store.js';
 import { init as initFileStore } from './lib/store-file.js';
 import { createKite } from './lib/kite.js';
 import { createApi } from './lib/api.js';
+import { paperCron } from './lib/paper-api.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 loadEnv(path.join(ROOT, '.env'));
@@ -38,7 +39,10 @@ const cache = {
 
 const kite = createKite({ apiKey: process.env.KITE_API_KEY, apiSecret: process.env.KITE_API_SECRET, storage: fileStorage, mock: MOCK, getTrades: () => store.getState().trades });
 await kite.init();
+if (process.env.PAPER_SHIFT_MIN) globalThis.__PAPER_SHIFT = Number(process.env.PAPER_SHIFT_MIN) * 60000; // testing only
 const handle = createApi({ store, kite, cache });
+// Paper trading: keep pending paper orders moving every minute while a market is open.
+setInterval(() => { paperCron({ kite, cache }).catch(() => {}); }, 60000).unref?.();
 
 // ---------- helpers ----------
 const send = (res, status, data, headers = {}) => {
