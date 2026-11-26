@@ -184,6 +184,10 @@ export default {
       // outside the journal queue (breadth building sends ~1,000 of these).
       // The Nifty P/E fetch (up to ~28 calls to NSE the first time) goes this way too.
       // Paper trading too: it keeps its own account in kv and polls every couple of seconds.
+      // Instrument lists change once a day: keep each day's copy in Cloudflare's edge cache,
+      // so Kite (which rate-limits these downloads) is asked about once a day per list.
+      const edgeKey = url.pathname.startsWith('/api/kite/instruments/') ? new Request(`https://tq-edge-cache${url.pathname}?d=${new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)}`) : null;
+      if (edgeKey) { const hit = await caches.default.match(edgeKey).catch(() => null); if (hit) return hit; }
       if (['/api/kite/raw-candles', '/api/kite/tokens', '/api/valuation'].includes(url.pathname) || url.pathname.startsWith('/api/kite/instruments/') || url.pathname.startsWith('/api/paper')) {
         const row = await db.prepare("SELECT value FROM kv WHERE key = 'kite-session'").first();
         const storage = { get: async () => (row ? JSON.parse(row.value) : null), put: async () => {}, del: (k) => db.prepare('DELETE FROM kv WHERE key = ?').bind(k).run() };
@@ -196,7 +200,11 @@ export default {
         } : { get: async () => null, put: async () => {} };
         const hit = await createApi({ store, kite, cache: kvCache, hosted: true })({ method: req.method, pathname: url.pathname, url, body: async () => body0 });
         const out = hit?.result;
-        if (out?.response) return new Response(out.response.body, { status: out.response.status, headers: { 'Content-Type': out.response.headers.get('content-type') || 'text/plain; charset=utf-8', 'Cache-Control': 'private, max-age=3600' } });
+        if (out?.response) {
+          const resp = new Response(out.response.body, { status: out.response.status, headers: { 'Content-Type': out.response.headers.get('content-type') || 'text/plain; charset=utf-8', 'Cache-Control': 'private, max-age=3600' } });
+          if (edgeKey && resp.ok) { const copy = new Response(resp.clone().body, { headers: { 'Content-Type': resp.headers.get('content-type'), 'Cache-Control': 'public, max-age=43200' } }); await caches.default.put(edgeKey, copy).catch(() => {}); }
+          return resp;
+        }
         return json(out ?? { error: 'Unknown API route' }, out ? 200 : 404);
       }
 

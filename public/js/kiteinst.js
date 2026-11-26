@@ -25,7 +25,7 @@ async function fetchCsv(ex) {
   for (let attempt = 0; ; attempt++) {
     res = await fetch(url);
     const busy = res.status === 429 || (res.status === 502 && /429/.test(await res.clone().text().catch(() => '')));
-    if (!busy || attempt >= 4) break;
+    if (!busy || attempt >= 2) break;
     await new Promise((r) => setTimeout(r, 1500 * 2 ** attempt));
   }
   if (!res.ok) { const j = await res.json().catch(() => ({})); const e = new Error(/429/.test(j.error || '') ? 'Kite is busy (too many requests) — try the search again in a few seconds' : j.error || `Instrument list failed (HTTP ${res.status})`); e.code = j.code; throw e; }
@@ -40,11 +40,22 @@ export function listFor(ex) {
 
 // Load the exchange lists one after another (in parallel Kite answers 429).
 let queue = Promise.resolve();
-const listQueued = (ex) => (lists[ex] ? Promise.resolve(lists[ex]) : (queue = queue.catch(() => {}).then(() => listFor(ex))));
+const failedAt = {};
+const listQueued = (ex) => {
+  if (lists[ex]) return Promise.resolve(lists[ex]);
+  if (Date.now() - (failedAt[ex] || 0) < 60000) return Promise.reject(new Error(`${ex} list unavailable for now`)); // don't hammer Kite
+  return (queue = queue.catch(() => {}).then(() => listFor(ex)).catch((e) => { failedAt[ex] = Date.now(); throw e; }));
+};
+// Search whichever lists loaded; only fail when none did. NSE first, so stocks work soonest.
 export async function searchLocal(q) {
-  const all = [];
-  for (const ex of INSTRUMENT_EXCHANGES) all.push(...await listQueued(ex));
-  return searchInstruments(all, q);
+  const all = []; const failed = []; let lastErr = null;
+  for (const ex of INSTRUMENT_EXCHANGES) {
+    try { all.push(...await listQueued(ex)); } catch (e) { failed.push(ex); lastErr = e; }
+  }
+  if (!all.length && lastErr) throw lastErr;
+  const hits = searchInstruments(all, q);
+  hits.missing = failed; // the page can say "MCX list didn't load"
+  return hits;
 }
 
 /** "&token=…" for candle requests when the browser does the instrument lookup, else "". */

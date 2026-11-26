@@ -116,7 +116,8 @@ async function doSearch(q) {
   try {
     const hits = (clientSearch() ? await searchLocal(q) : (await api(`/api/kite/search?q=${encodeURIComponent(q)}`)).results)
       .filter((h) => ['EQ', 'FUT', 'COM'].includes(h.segment) && !['CE', 'PE'].includes(h.type));
-    box.innerHTML = hits.length ? hits.slice(0, 12).map((h, i) => `<button class="pp-r" data-pp-add="${i}"><b>${esc(h.symbol)}</b> <small>${esc(h.exchange)} · ${segName(h.segment)}${h.expiry ? ` · ${esc(h.expiry)}` : ''}${h.lotSize > 1 ? ` · lot ${h.lotSize}` : ''}</small><span>${esc(h.name || '')}</span></button>`).join('') : '<div class="empty-sm">No matching stock, future or commodity</div>';
+    const miss = (hits.missing || []).length ? `<div class="sub" style="padding:6px 10px;font-size:11.5px">${esc(hits.missing.join(', '))} list${hits.missing.length > 1 ? 's' : ''} didn't load (Kite busy) — those results are missing; try again shortly.</div>` : '';
+    box.innerHTML = miss + (hits.length ? hits.slice(0, 12).map((h, i) => `<button class="pp-r" data-pp-add="${i}"><b>${esc(h.symbol)}</b> <small>${esc(h.exchange)} · ${segName(h.segment)}${h.expiry ? ` · ${esc(h.expiry)}` : ''}${h.lotSize > 1 ? ` · lot ${h.lotSize}` : ''}</small><span>${esc(h.name || '')}</span></button>`).join('') : '<div class="empty-sm">No matching stock, future or commodity</div>');
     box._hits = hits; box.hidden = false;
   } catch (e) { box.innerHTML = `<div class="sub neg" style="padding:8px">${esc(e.message)}</div>`; box.hidden = false; }
 }
