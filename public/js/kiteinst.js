@@ -20,8 +20,15 @@ async function fetchCsv(ex) {
     const hit = await cache.match(url);
     if (hit) return hit.text();
   } catch { cache = null; /* Cache API unavailable (http:// on a LAN address) */ }
-  const res = await fetch(url);
-  if (!res.ok) { const j = await res.json().catch(() => ({})); const e = new Error(j.error || `Instrument list failed (HTTP ${res.status})`); e.code = j.code; throw e; }
+  // Kite rate-limits these downloads: on "too many requests" (429) wait and try again.
+  let res;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(url);
+    const busy = res.status === 429 || (res.status === 502 && /429/.test(await res.clone().text().catch(() => '')));
+    if (!busy || attempt >= 4) break;
+    await new Promise((r) => setTimeout(r, 1500 * 2 ** attempt));
+  }
+  if (!res.ok) { const j = await res.json().catch(() => ({})); const e = new Error(/429/.test(j.error || '') ? 'Kite is busy (too many requests) — try the search again in a few seconds' : j.error || `Instrument list failed (HTTP ${res.status})`); e.code = j.code; throw e; }
   if (cache) { try { await cache.put(url, res.clone()); } catch { /* quota */ } }
   return res.text();
 }
@@ -31,8 +38,12 @@ export function listFor(ex) {
   return (loading[ex] ||= fetchCsv(ex).then((csv) => (lists[ex] = parseExchange(ex, csv))).finally(() => { delete loading[ex]; }));
 }
 
+// Load the exchange lists one after another (in parallel Kite answers 429).
+let queue = Promise.resolve();
+const listQueued = (ex) => (lists[ex] ? Promise.resolve(lists[ex]) : (queue = queue.catch(() => {}).then(() => listFor(ex))));
 export async function searchLocal(q) {
-  const all = (await Promise.all(INSTRUMENT_EXCHANGES.map(listFor))).flat();
+  const all = [];
+  for (const ex of INSTRUMENT_EXCHANGES) all.push(...await listQueued(ex));
   return searchInstruments(all, q);
 }
 
