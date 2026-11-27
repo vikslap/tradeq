@@ -43,3 +43,28 @@ test('partial exits and open remainder; short trades; long-term ignored', () => 
   assert.ok(Math.abs(r.you - (40 + 120 + 100 - ch)) < 1e-6);
   assert.equal(r.trades, 2);
 });
+
+import { sliceResults, rollingWindows, drawdown } from '../public/benchmark.js';
+import { riskFreeOf } from '../public/riskfree.js';
+
+test('rolling 12-month windows and drawdown', () => {
+  const nav2 = [['2023-01-01', 100], ['2026-12-31', 100]];
+  const mk = (start, end, you) => ({ t: { id: start }, sym: 'X', side: 'LONG', start, end, qty: 10, cost: 1000, endPrice: 100 + you / 10, charges: 0 });
+  const res = sliceResults([mk('2024-01-10', '2024-02-10', 100), mk('2024-06-01', '2024-07-01', -300), mk('2025-03-01', '2025-04-01', 50)], nav2);
+  const r = rollingWindows(res, '2025-06-30');
+  assert.equal(r.windows[0].to, '2025-01-31'); assert.equal(r.windows.at(-1).to, '2025-06-30');
+  assert.ok(Math.abs(r.windows[0].you - -200) < 1e-9); // Feb-24 … Jan-25 holds the +100 and the −300
+  assert.ok(Math.abs(r.windows.at(-1).you - -250) < 1e-9); // Jul-24 … Jun-25: −300 and +50
+  const d = drawdown([{ t: '2024-02-10', v: 100 }, { t: '2024-07-01', v: -300 }, { t: '2025-04-01', v: 50 }]);
+  assert.equal(d.max, 300); assert.equal(d.from, '2024-02-10'); assert.equal(d.current, 250);
+});
+
+test('real trade: risk-free when the stop locks in more than the charges', () => {
+  const t = { id: 'a', status: 'OPEN', side: 'LONG', exchange: 'NSE', segment: 'EQ', qty: 100, entryPrice: 1000, entryTime: '2026-11-02T04:00:00Z', entryOrders: 1, stopLoss: 950, exits: [] };
+  assert.equal(riskFreeOf(t).free, false);
+  assert.equal(riskFreeOf({ ...t, stopLoss: 1000 }).free, false);
+  assert.equal(riskFreeOf({ ...t, stopLoss: 1010 }).free, true);
+  // half booked at 1100 pays for a stop below entry on the rest
+  const p = { ...t, stopLoss: 990, exits: [{ qty: 50, price: 1100, time: '2026-11-10T05:00:00Z' }] };
+  assert.equal(riskFreeOf(p).free, true);
+});

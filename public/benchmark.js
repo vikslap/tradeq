@@ -137,3 +137,62 @@ export function marksNeeded(slices) {
   }
   return need;
 }
+
+// ---------- rolling 12-month windows and drawdown ----------
+// Each slice's result counts on the day it closes (open slices: today), for you and for the
+// index on the same money — the closed-trade view a trading journal uses.
+const addMonths = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); };
+const monthEnd = (iso) => { const d = new Date(`${iso.slice(0, 7)}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + 1); d.setUTCDate(0); return d.toISOString().slice(0, 10); };
+
+/** Per-slice results (you and the index on the same money), each dated by its end. */
+export function sliceResults(slices, nav) {
+  const N = navLookup(nav);
+  return slices.map((s) => {
+    const entry = s.cost / s.qty;
+    const you = (s.side === 'SHORT' ? entry - s.endPrice : s.endPrice - entry) * s.qty - s.charges;
+    return { start: s.start, end: s.end, cost: s.cost, you, idx: s.cost * (N(s.end) / N(s.start) - 1) };
+  });
+}
+
+export function rollingWindows(results, today, months = 12) {
+  if (!results.length) return { windows: [], beat: 0 };
+  const first = results.reduce((m, r) => (r.start < m ? r.start : m), results[0].start);
+  const out = [];
+  let end = monthEnd(addMonths(first, months));
+  for (;;) {
+    const e = end > today ? today : end; const s = addMonths(e, -months);
+    let you = 0; let idx = 0; let capDays = 0; let n = 0;
+    for (const r of results) {
+      if (r.end > s && r.end <= e) { you += r.you; idx += r.idx; n++; }
+      const a = r.start > s ? r.start : s; const b = r.end < e ? r.end : e;
+      if (b > a) capDays += r.cost * days(a, b);
+    }
+    const avg = capDays / Math.max(1, days(s, e));
+    out.push({ from: s, to: e, you, idx, gap: you - idx, trades: n, avgDeployed: avg, youPct: avg ? you / avg : null, idxPct: avg ? idx / avg : null });
+    if (end >= today) break;
+    end = monthEnd(addMonths(end.slice(0, 8) + '01', 1));
+  }
+  const counted = out.filter((w) => w.trades);
+  return { windows: out, beat: counted.filter((w) => w.gap > 0).length, counted: counted.length };
+}
+
+/** Largest fall from a running high of a cumulative P&L series (₹), and where things stand now. */
+export function drawdown(points) {
+  let cum = 0; let peak = 0; let peakAt = null; let max = 0; let maxFrom = null; let maxTo = null; let fromAt = null;
+  const sorted = [...points].sort((a, b) => a.t.localeCompare(b.t));
+  for (const p of sorted) {
+    cum += p.v;
+    if (cum >= peak) { peak = cum; peakAt = p.t; }
+    const dd = peak - cum;
+    if (dd > max) { max = dd; maxFrom = peakAt; maxTo = p.t; }
+  }
+  fromAt = peakAt;
+  return { max, from: maxFrom, to: maxTo, current: peak - cum, since: fromAt, total: cum };
+}
+
+export function drawdowns(results) {
+  return {
+    you: drawdown(results.map((r) => ({ t: r.end, v: r.you }))),
+    idx: drawdown(results.map((r) => ({ t: r.end, v: r.idx }))),
+  };
+}

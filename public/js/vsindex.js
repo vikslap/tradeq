@@ -1,7 +1,7 @@
 // "You vs Nifty 50" — Swing + Positional stock trades against the same money in a
 // Nifty 50 index fund over the same days. Dashboard tile + Insights section with a
 // year-by-year scorecard. Mutual funds, long-term holds, intraday and F&O are left out.
-import { slicesOf, compareWithIndex, marksNeeded } from '../benchmark.js';
+import { slicesOf, compareWithIndex, marksNeeded, sliceResults, rollingWindows, drawdowns } from '../benchmark.js';
 import { fyOf } from '../ledger.js';
 import { S, api, ltpFor } from './state.js';
 import { $, esc, money, pct, cls } from './util.js';
@@ -50,7 +50,8 @@ export async function vsIndex({ fetchCloses = true } = {}) {
   const need = marksNeeded(slices);
   const m = fetchCloses ? await fetchMarks(need) : marks();
   const r = compareWithIndex(slices, b.nav, d, (sym, date) => m[`${sym}|${date}`] ?? null);
-  return { ...r, fundName: b.name, navTo: b.nav.at(-1)?.[0] };
+  const res = sliceResults(slices, b.nav);
+  return { ...r, rolling: rollingWindows(res, d), dd: drawdowns(res), fundName: b.name, navTo: b.nav.at(-1)?.[0] };
 }
 
 // ---------- dashboard tile ----------
@@ -68,6 +69,7 @@ export async function mountVsTile() {
         <div><span>Your trades</span><b class="mono ${cls(r.you)}">${rsS(r.you)}</b><em>${r.youXirr != null ? `${pct(r.youXirr)} a year` : pp(r.youPct)}</em></div>
         <div><span>Same money in Nifty 50</span><b class="mono ${cls(r.idx)}">${rsS(r.idx)}</b><em>${r.idxXirr != null ? `${pct(r.idxXirr)} a year` : pp(r.idxPct)}</em></div>
         ${fy ? `<div><span>This year (${esc(fy.fy)})</span><b class="mono ${cls(fy.gap)}">${rsS(fy.gap)}</b><em>${pp(fy.youPct)} vs ${pp(fy.idxPct)}</em></div>` : ''}
+        ${r.rolling.windows.length ? (() => { const w = r.rolling.windows.at(-1); return `<div><span>Last 12 months</span><b class="mono ${cls(w.gap)}">${rsS(w.gap)}</b><em>beat the index in ${r.rolling.beat} of ${r.rolling.counted} rolling years</em></div>`; })() : ''}
       </div>
       <div class="sub" style="font-size:11px;margin-top:6px">Swing + Positional stock trades only, after charges, against the same rupees in a Nifty 50 index fund over the same days.${r.unpriced ? ` ${r.unpriced} open position${r.unpriced === 1 ? '' : 's'} without a live price counted at cost.` : ''}</div>`;
     el.innerHTML = S.vsTileHtml;
@@ -104,6 +106,41 @@ export async function mountVsSection() {
       </div>
       <div class="sub" style="margin-bottom:8px">You beat the index in <b>${won} of ${r.years.length}</b> financial year${r.years.length === 1 ? '' : 's'}. On average you had <b>${rs0(r.avgDeployed)}</b> in trades.</div>
       <div class="table-wrap"><table class="tbl vs-tbl"><thead><tr><th>Year</th><th class="r">Trades</th><th class="r">Avg money<br>used</th><th class="r">You</th><th class="r">Same money<br>in Nifty 50</th><th class="r">Gap</th><th class="r">Nifty 50 fund,<br>whole year</th></tr></thead><tbody>${rows}</tbody></table></div>
+      ${rollingBlock(r)}
+      ${ddBlock(r)}
       <div class="sub" style="font-size:11.5px;margin-top:6px">"Nifty 50 fund, whole year" is the fund's return from 1 April to 31 March — what you'd have got with all your money in it all year, for context.${r.estimated ? ' ≈ = some 31-March prices were unavailable (renamed or delisted stocks), so that part is split by days held.' : ''}</div>`;
   } catch (e) { el.innerHTML = `<div class="sub neg">${esc(e.message)}</div>`; }
+}
+
+// Rolling 12-month gap: one bar per month-end window (green = ahead of the index).
+function rollingBlock(r) {
+  const ws = r.rolling.windows;
+  if (!ws.length) return `<h3 class="pp-h" style="margin-top:18px">Rolling 12 months</h3><div class="empty-sm">Needs a little over a year of trades — each bar compares the 12 months up to a month-end.</div>`;
+  const W = 640; const H = 150; const pad = 4; const bw = Math.max(3, Math.min(24, (W - pad * 2) / ws.length - 2));
+  const max = Math.max(1, ...ws.map((w) => Math.abs(w.gap))); const mid = H / 2;
+  const bars = ws.map((w, i) => { const h = (Math.abs(w.gap) / max) * (mid - 8); const x = pad + i * ((W - pad * 2) / ws.length); return `<rect x="${x.toFixed(1)}" y="${(w.gap >= 0 ? mid - h : mid).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, h).toFixed(1)}" rx="1.5" fill="${w.gap >= 0 ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)'}" opacity="${w.trades ? 0.9 : 0.25}"><title>${esc(w.from)} → ${esc(w.to)}: you ${rsS(w.you)}, index ${rsS(w.idx)}, gap ${rsS(w.gap)} · ${w.trades} trade exits</title></rect>`; }).join('');
+  const last = ws.at(-1);
+  const recent = ws.slice(-6).filter((w) => w.trades); const older = ws.slice(-12, -6).filter((w) => w.trades);
+  const avg = (a) => (a.length ? a.reduce((s, w) => s + w.gap, 0) / a.length : null);
+  const trend = recent.length && older.length ? (avg(recent) > avg(older) ? 'improving — the last 6 windows are better than the 6 before' : 'slipping — the last 6 windows are worse than the 6 before') : null;
+  return `<h3 class="pp-h" style="margin-top:18px">Rolling 12 months <span class="sub">your gap vs the index, at each month-end</span></h3>
+    <div class="sub" style="margin-bottom:6px">Last 12 months: <b class="${cls(last.gap)}">${rsS(last.gap)}</b> (${pp(last.youPct)} vs ${pp(last.idxPct)} on money used) · you beat the index in <b>${r.rolling.beat} of ${r.rolling.counted}</b> rolling years${trend ? ` · ${trend}` : ''}.</div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="roll-chart" role="img" aria-label="Rolling 12-month gap vs the index"><line x1="0" x2="${W}" y1="${mid}" y2="${mid}" stroke="var(--border)"/>${bars}</svg>
+    <div class="sub" style="font-size:11px;display:flex;justify-content:space-between"><span>${esc(ws[0].to.slice(0, 7))}</span><span>faded bars: no exits in that window</span><span>${esc(last.to.slice(0, 7))}</span></div>`;
+}
+
+function ddBlock(r) {
+  const y = r.dd.you; const i = r.dd.idx;
+  const ddPct = (d) => (r.avgDeployed ? ` · ${((d / r.avgDeployed) * 100).toFixed(1)}% of money used` : '');
+  const k = (label, v, s, c = '') => `<div class="kpi"><div class="k">${label}</div><div class="v mono ${c}">${v}</div><div class="s">${s}</div></div>`;
+  const fmt = (iso) => (iso ? new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' }) : '—');
+  const verdict = y.max < i.max * 0.8 ? 'Your worst fall was smaller than the index\'s on the same money — a smoother ride.' : y.max > i.max * 1.2 ? 'Your worst fall was deeper than the index\'s on the same money.' : 'Your worst fall was about the same as the index\'s on the same money.';
+  return `<h3 class="pp-h" style="margin-top:18px">Drawdown <span class="sub">the deepest fall from a previous high in your trading P&L</span></h3>
+    <div class="kpis k4" style="margin-bottom:6px">
+      ${k('Your worst drawdown', y.max ? `−${rs0(y.max)}` : '₹0', y.max ? `${fmt(y.from)} → ${fmt(y.to)}${ddPct(y.max)}` : 'never below a previous high', y.max ? 'neg' : '')}
+      ${k('Index, same money', i.max ? `−${rs0(i.max)}` : '₹0', i.max ? `${fmt(i.from)} → ${fmt(i.to)}${ddPct(i.max)}` : '', i.max ? 'neg' : '')}
+      ${k('You now', y.current ? `−${rs0(y.current)}` : 'At a high', y.current ? `below your high of ${fmt(y.since)}` : 'no current drawdown', y.current ? 'neg' : 'pos')}
+      ${k('Index now', i.current ? `−${rs0(i.current)}` : 'At a high', i.current ? `below its high of ${fmt(i.since)}` : '', i.current ? 'neg' : 'pos')}
+    </div>
+    <div class="sub">${verdict} Counted as each trade or partial exit closes; open trades at today's price.</div>`;
 }

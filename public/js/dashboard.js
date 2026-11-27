@@ -1,4 +1,5 @@
 import { marketStripShell } from './breadthlive.js';
+import { riskFreeOf } from '../riskfree.js';
 import { vsTileShell } from './vsindex.js';
 import { metrics, tradeKey, isLT, isTrading, reviewStatus } from '../game.js';
 import { computeStats, investmentStats } from '../stats.js';
@@ -132,6 +133,12 @@ export function liveNote() {
 }
 
 
+// 🛡️ when the stop now locks in at least break-even after all charges.
+function rfBadge(t) {
+  const rf = riskFreeOf(t); if (!rf?.free) return '';
+  return `<div><span class="pill rf" title="If your stop at ${price(t.stopLoss)} is hit, this trade still makes ${money(rf.locked, { sign: true })} after charges">🛡️ risk-free</span></div>`;
+}
+
 export function openPositionsInner() {
   const open = S.state.trades.filter((t) => t.status === 'OPEN' && isTrading(t)).sort((a, b) => new Date(b.entryTime) - new Date(a.entryTime));
   if (!open.length) return '<div class="empty-sm">No open positions. Waiting for the right setup is a skill.</div>';
@@ -146,7 +153,7 @@ export function openPositionsInner() {
       <td class="r num">${t.status === 'OPEN' && m.exQty ? `${nf0.format(m.openQty)}<span class="faint">/${nf0.format(t.qty)}</span>` : nf0.format(t.qty)}</td>
       <td class="r num">${price(t.entryPrice)}</td>
       <td class="r num">${q ? `<span class="ltp">${flash ? '<span class="blink"></span>' : ''}${price(q.last)}</span><div class="${cls(q.changePct)}" style="font-size:11px">${q.changePct == null ? '' : (q.changePct > 0 ? '+' : '') + (q.changePct * 100).toFixed(2) + '%'}</div>` : '<span class="faint">—</span>'}</td>
-      <td class="r num">${t.stopLoss == null ? '<span class="pill red">none</span>' : price(t.stopLoss)}</td>
+      <td class="r num">${t.stopLoss == null ? '<span class="pill red">none</span>' : `${price(t.stopLoss)}${rfBadge(t)}`}</td>
       <td class="r num">${price(t.target)}</td>
       <td class="r num ${cls(m.net)}">${m.net == null ? '—' : money(m.net, { sign: true })}</td>
       <td class="r num ${cls(m.r)}">${rfmt(m.r)}</td>

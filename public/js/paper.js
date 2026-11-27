@@ -6,6 +6,7 @@ import { S, api } from './state.js';
 import { $, $$, esc, nf2, nf0, money, cls, paint } from './util.js';
 import { openModal, closeModal, confirmBox, toast } from './ui.js';
 import { clientSearch, searchLocal } from './kiteinst.js';
+import { noteRiskFree } from './riskfree-alerts.js';
 
 const WKEY = 'tq-paper-watch';
 const TKEY = 'tq-paper-tab';
@@ -79,6 +80,7 @@ async function refresh(force = false) {
 function paintAll() {
   if (!P.data || !$('#pp-body')) return;
   paintStatus(); paintFunds(); paintWatch(); paintTab(); paintCounts();
+  noteRiskFree(P.data.positions.filter((p) => p.qty).map((p) => ({ id: `${kOf(p)}:${p.product}:${p.openedAt}`, label: p.symbol, free: !!p.rf?.free, locked: p.rf?.locked ?? 0 })), 'paper');
   if (S.ow) owQuote();
 }
 
@@ -140,7 +142,7 @@ function tabPositions() {
   const total = d.positions.reduce((s, p) => s + pnlOf(p), 0);
   if (!d.positions.length) return '<div class="empty-sm">No positions today. Search for an instrument and press <b>B</b> or <b>S</b> to place an order.</div>';
   const row = (p) => { const l = ltp(p); const pl = pnlOf(p); const ch = l && p.avg ? ((l - p.avg) / p.avg) * 100 * Math.sign(p.qty || 1) : null; return `<tr class="${p.qty ? '' : 'muted'}">
-    <td><span class="pill">${esc(p.product)}</span></td><td><b>${esc(p.symbol)}</b> <small class="muted">${esc(p.exchange)}</small></td>
+    <td><span class="pill">${esc(p.product)}</span></td><td><b>${esc(p.symbol)}</b> <small class="muted">${esc(p.exchange)}</small>${p.rf ? `<div class="sub" style="font-size:11px">stop ${nf2.format(p.rf.stop)}${p.rf.free ? ` <span class="pill rf" title="If the stop is hit this still makes ${esc(rs(p.rf.locked))} after charges">🛡️ risk-free</span>` : ` · risk ${rs0(-p.rf.locked)}`}</div>` : p.qty ? '<div class="sub neg" style="font-size:11px">no stop</div>' : ''}</td>
     <td class="r mono ${p.qty > 0 ? 'pos' : p.qty < 0 ? 'neg' : ''}" data-l="Qty">${p.qty}</td><td class="r mono" data-l="Avg">${p.qty ? nf2.format(p.avg) : '—'}</td>
     <td class="r mono" data-l="LTP">${l ? nf2.format(l) : '—'}</td><td class="r mono ${cls(pl)}" data-l="P&L"><b>${rs(pl)}</b></td><td class="r mono ${cls(ch)}" data-l="Chg">${ch == null || !p.qty ? '' : `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`}</td>
     <td class="r pp-act">${p.qty ? `<button class="btn sm" data-pp-add-pos="${esc(kOf(p))}|${p.product}">Add</button><button class="btn sm danger" data-pp-exit="${esc(kOf(p))}|${p.product}">Exit</button><button class="btn sm ghost" data-pp-convert="${esc(kOf(p))}|${p.product}">Convert</button><button class="btn sm ghost" data-pp-gtt-pos="${esc(kOf(p))}|${p.product}">GTT</button>` : '<span class="sub">closed</span>'}</td></tr>`; };

@@ -118,3 +118,17 @@ test('modify and cancel', () => {
   const g = createGtt(a, { type: 'single', ...EQ, side: 'BUY', product: 'CNC', qty: 5, trigger: 1400, price: 1400, ltpAtCreate: 1500 }, at('10:05'));
   assert.equal(g.dir, 'down');
 });
+
+import { positionRiskFree } from '../public/paper/engine.js';
+test('a paper position is risk-free once its stop locks in at least the charges', () => {
+  const a = newAccount();
+  placeOrder(a, { ...EQ, side: 'BUY', product: 'MIS', type: 'MARKET', qty: 100 }, { now: at('10:00'), quote: Q(1500, 0) });
+  const p = a.positions[0];
+  assert.equal(positionRiskFree(a, p), null); // no stop yet
+  const sl = placeOrder(a, { ...EQ, side: 'SELL', product: 'MIS', type: 'SL-M', trigger: 1480, qty: 100 }, { now: at('10:01'), quote: Q(1500) });
+  assert.equal(positionRiskFree(a, p).free, false);
+  modifyOrder(a, sl.id, { trigger: 1500 }, { now: at('10:30'), quote: Q(1520) });
+  assert.equal(positionRiskFree(a, p).free, false); // stop at entry still loses the charges
+  modifyOrder(a, sl.id, { trigger: 1502 }, { now: at('10:31'), quote: Q(1520) });
+  const rf = positionRiskFree(a, p); assert.equal(rf.free, true); assert.ok(rf.locked > 0 && rf.locked < 200);
+});

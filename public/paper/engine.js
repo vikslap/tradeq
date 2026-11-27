@@ -509,3 +509,30 @@ export function stats(acc) {
     profitFactor: losses.length && sum(losses, (t) => t.net) ? r2(sum(wins, (t) => t.net) / -sum(losses, (t) => t.net)) : null,
   };
 }
+
+// ---------- risk-free positions ----------
+/** The protective stop on a position: the tightest live stop order (SL / SL-M / cover leg) or GTT stop. */
+export function stopFor(acc, p) {
+  if (!p.qty) return null;
+  const long = p.qty > 0; const exitSide = long ? 'SELL' : 'BUY'; const k = `${p.exchange}:${p.symbol}`;
+  const cands = [];
+  for (const o of acc.orders) if (isLive(o) && keyOf(o) === k && o.side === exitSide && (o.type === 'SL' || o.type === 'SL-M') && o.trigger) cands.push(o.trigger);
+  for (const g of acc.gtts) {
+    if (g.status !== 'active' || keyOf(g) !== k || g.side !== exitSide) continue;
+    if (g.type === 'oco') cands.push(g.stop);
+    else if (long ? g.trigger < p.avg || g.dir === 'down' : g.trigger > p.avg || g.dir === 'up') cands.push(g.trigger);
+  }
+  if (!cands.length) return null;
+  return long ? Math.max(...cands) : Math.min(...cands);
+}
+
+/** Worst case if the stop is hit: booked P&L on this trade + move to the stop − charges paid and still to pay. */
+export function positionRiskFree(acc, p) {
+  const stop = stopFor(acc, p); if (stop == null) return null;
+  const tr = acc.trades.find((t) => !t.closedAt && t.exchange === p.exchange && t.symbol === p.symbol && t.product === p.product);
+  const booked = (tr?.pnl || 0) - (tr?.charges || 0);
+  const qty = Math.abs(p.qty);
+  const exitCh = chargesFor(p, p.qty > 0 ? 'SELL' : 'BUY', qty, stop).total;
+  const locked = booked + (stop - p.avg) * p.qty - exitCh;
+  return { stop, locked: r2(locked), free: locked >= 0 };
+}
