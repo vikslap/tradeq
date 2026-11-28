@@ -14,13 +14,14 @@ export function pageAchievements() {
     ['Target planned · setup tagged · plan ≥ 2R', '+5 each'], ['Entered at planned trigger / chased it', '+5 / −10'],
     ['Exit reason recorded', '+10'], ['Followed / broke the plan', '+15 / −10'], ['Lesson written', '+10'],
     ['Loss kept within 1R', '+15'], ['2R+ / 3R+ winner', '+15 / +25'], ['Clean trading day', '+20'], ['Weekly review', '+40'],
+    ['Profit swept to long-term (Capital)', '+25'],
   ];
   const PENALTIES = [
     ['Impulse trade (no setup, no thesis)', '−10'], ['Too much capital in one stock', '−10'], ['Total open risk over limit', '−10'],
     ['Averaged down a loser', '−15'], ['Revenge entry (within window of a loss)', '−15'], ['Over daily trade limit', '−10'],
     ['Traded past daily loss limit', '−15'], ['Sized up after 2 losses (tilt)', '−15'], ['Widened the stop (each, max 3)', '−15'],
     ['Loss ran past 1.5R', '−20'], ['Winner turned into a loss (after +1R)', '−15'], ['Cut a winner short (<1R, discretionary)', '−10'],
-    ['Closed without review', '−5'], ['Self-reported mistake (each)', '−5'],
+    ['Closed without review', '−5'], ['Self-reported mistake (each)', '−5'], ['New trade with the kill switch hit (Capital)', '−15'],
     ['Mistake stack: 2+ errors on one trade', '−10 per extra (max −40)'], ['Repeat of a mistake from your last 5 trades', '−5 each'],
   ];
 

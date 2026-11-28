@@ -52,6 +52,8 @@ Without Kite, everything works in manual mode.
 - **Close-trade review.** Records exit reason, whether you followed the plan, emotion, lesson and an execution grade. It previews P&L, R and exit XP.
 - **Stop tracking.** Trailing a stop is free. Widening one is recorded and penalised. A "typo fix" checkbox lets you correct the original stop without a penalty.
 - **Dashboard.** Level, XP, discipline score, clean-trade streak, daily quests, KPIs, open positions, equity curve and XP feed.
+- **Menu.** Grouped into Trade (Dashboard, Journal, Weekly review, Position size), Analyse (Insights, Capital, Market), Practice (chart replay and live paper trading, as two tabs) and Progress (Achievements, Settings).
+- **Capital.** A fixed trading base, quarterly profit sweeps to long-term investing, a kill switch, an STCG estimate, and the index-fund comparisons. See [Capital](#-capital-trading-base-sweeps-and-kill-switch).
 - **Insights.** Clean vs rule-breaking trades, the P&L cost of each mistake, R distribution, and P&L by setup, emotion, weekday, exit reason, segment and side. Also a daily P&L heatmap.
 - **Weekly review.** The week's stats, a reflection form and a history of past reviews (+40 XP each).
 - **Achievements.** A level path, 16 badges with progress bars, the full XP rulebook and an XP log.
@@ -125,6 +127,7 @@ Every entry has a **type**: Intraday, Swing, Positional or Long-term. Trades log
 | 2R+ / 3R+ winner (let it run) | +15 / +25 |
 | Clean trading day | +20 |
 | Weekly review | +40 |
+| Profit swept out to long-term investing (💰 Capital) | +25 |
 
 ### Lose: the mistakes it catches
 | Mistake | How it's detected | XP |
@@ -147,6 +150,7 @@ Every entry has a **type**: Intraday, Swing, Positional or Long-term. Trades log
 | Cut a winner short | discretionary exit under 1R with a target set | −10 |
 | Closed without review | no exit reason and no plan answer | −5 |
 | Self-reported mistakes | chased, ignored news, boredom, moved target… (you tick them) | −5 each |
+| Traded through the kill switch | new trade opened while booked equity was at or below the kill switch (💰 Capital) | −15 |
 
 **Mistakes compound.** Two or more mistakes on one trade add a **stack penalty** of −10 for each extra mistake (max −40). Repeating any mistake from your last 5 trades costs another **−5**. Self-reported mistakes cost less than detected ones, so being honest is always cheaper. The *Honest Mirror* badge rewards it.
 
@@ -163,6 +167,7 @@ server.js            HTTP server + JSON API (no dependencies)
 lib/                 store (journal file), Kite client, chart helpers
 public/
   game.js            gamification engine (XP rules, levels, badges, quests)
+  capital.js         trading base, sweeps, kill switch and STCG estimate (pure, tested)
   stats.js           performance statistics
   sync.js            journal ⇄ Kite reconciliation
   tradebook.js       Console tradebook parsing and pairing
@@ -175,6 +180,7 @@ public/
     util.js          formatting and small UI helpers
     ui.js            modals, toasts, confetti, level-up
     dashboard.js · journal.js · insights.js · review.js · achievements.js · settings.js
+    capital-page.js  💰 Capital page (base, sweeps, kill switch, tax estimate, index comparisons)
     forms.js         new/edit trade and close-trade forms
     drawer.js        trade side panel and its chart
     importers.js     Kite sync, fills, tradebook import, linking
@@ -215,11 +221,22 @@ npx wrangler deploy
 
 Both versions share the same API code (`lib/api.js`). The local server (`server.js`) stores the journal in `data/journal.json`, and the Worker (`worker/index.js`) stores it in D1.
 
+## 💰 Capital: trading base, sweeps and kill switch
+
+Set it up on the **Capital** page: your trading capital (say ₹1,50,000), the day to start counting from, and a kill switch (default 80% of capital).
+
+- **Account now** = capital + trading P&L booked since the start date (after charges) − money swept out + open P&L at live prices. Long-term holdings are left out.
+- **Ready to sweep** = booked profit above the base, minus an estimate of the tax on it, and never so much that the account would drop below the base after open losses. Each quarter (Indian FY: Apr–Jun is Q1), move that amount to your long-term investments and **Log sweep** (+25 XP).
+- A sweep counts as **money taken out, never a loss**, so win rate, R and the index comparisons stay clean. The Zerodha ledger shows it as a withdrawal once you import it.
+- **Kill switch.** When the account falls to the kill-switch level, a red banner says to stop and review. Every new trade opened while booked equity is at or below it costs −15 XP. It warns; it doesn't block.
+- **Tax this year (estimate).** Short-term gains on delivery equity (held up to 12 months) at 20%, with this year's short-term losses set against them. Long-term gains, intraday and F&O are shown but not estimated. It's a rough guide, not tax advice.
+- **Quarters above base** counts finished quarters in a row that ended with booked equity at or above the base.
+
 ## Funds ledger: real returns, index-fund comparison, yearly charges
 
-Import your Zerodha funds ledger: **Settings → ⬆ Import Zerodha ledger**, or the button in **Insights**. Download it from Console → Funds → Statement → Ledger as CSV. You can pick several years' files at once; overlapping entries are skipped.
+Import your Zerodha funds ledger: **Settings → ⬆ Import Zerodha ledger**, or the button on the **💰 Capital** page. Download it from Console → Funds → Statement → Ledger as CSV. You can pick several years' files at once; overlapping entries are skipped.
 
-In **Insights** you then get:
+On the **💰 Capital** page you then get:
 
 - **Am I beating an index fund?**
   - Your net money put in (added − withdrawn), your gain, and your yearly return (XIRR).

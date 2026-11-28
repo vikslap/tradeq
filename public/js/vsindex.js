@@ -55,7 +55,7 @@ export async function vsIndex({ fetchCloses = true } = {}) {
 }
 
 // ---------- dashboard tile ----------
-export const vsTileShell = () => `<section class="card o-vs" id="vs-tile"><header class="card-h"><h3>🏁 You vs Nifty 50</h3><a class="sub" href="#/insights">details →</a></header><div id="vs-tile-body">${S.vsTileHtml || '<div class="empty-sm">Working it out…</div>'}</div></section>`;
+export const vsTileShell = () => `<section class="card o-vs" id="vs-tile"><header class="card-h"><h3>🏁 You vs Nifty 50</h3><a class="sub" href="#/capital">details →</a></header><div id="vs-tile-body">${S.vsTileHtml || '<div class="empty-sm">Working it out…</div>'}</div></section>`;
 
 export async function mountVsTile() {
   const el = $('#vs-tile-body'); if (!el) return;

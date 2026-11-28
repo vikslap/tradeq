@@ -89,6 +89,8 @@ h3 { font-size: 15px; font-weight: 650; }
 .brand b { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: var(--accent-soft); border: 1px solid rgba(139,108,255,.35); font-size: 17px; }
 .nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-h { padding: 14px 12px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint, var(--muted)); opacity: .8; }
+.nav-h:first-child { padding-top: 4px; }
 .nav a { display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 10px; color: var(--muted); font-weight: 500; transition: background .15s, color .15s; }
 .nav a span { width: 20px; text-align: center; filter: grayscale(.4); }
 .nav a b { font-weight: inherit; }
@@ -374,6 +376,7 @@ table.tbl { width: 100%; border-collapse: collapse; }
   .app { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; flex-direction: row; align-items: center; padding: 10px 14px; overflow-x: auto; }
   .nav { flex-direction: row; }
+  .nav-h { display: none; }
   .nav a { padding: 8px 10px; white-space: nowrap; }
   .sidebar-foot { display: none; }
   .dash, .insights, .form-grid { grid-template-columns: 1fr; }
@@ -796,3 +799,8 @@ tr.muted td { opacity: .6; }
 .macro-t.off { opacity: .4; }
 .macro-n { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; } .macro-n i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
 .macro-t b { font-size: 16px; } .macro-t small { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Practice: Replay / Paper tabs */
+.ptabs { display: inline-flex; padding: 3px; border-radius: 11px; background: var(--bg-2); border: 1px solid var(--border-2); gap: 2px; margin-bottom: 16px; }
+.ptabs a { padding: 7px 14px; border-radius: 8px; font-weight: 600; font-size: 12.5px; color: var(--muted); text-decoration: none; }
+.ptabs a.on { background: var(--panel-3); color: var(--text); }

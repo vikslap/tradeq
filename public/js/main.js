@@ -5,6 +5,7 @@ import { pageMarket, mountMarket } from './heatmap-page.js';
 import { pagePaper, mountPaper } from './paper.js';
 import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
 import { mountVsTile, mountVsSection } from './vsindex.js';
+import { pageCapital, mountCapital, capitalActions } from './capital-page.js';
 import { announceRiskFree } from './riskfree-alerts.js';
 import { computeGame, weekStart, isTrading, HORIZON_LABEL } from '../game.js';
 import { computeStats } from '../stats.js';
@@ -46,15 +47,17 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet
 export function render() {
   if (!S.state) return;
   const { page } = route();
-  $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === page));
+  // Paper trading lives under Practice, so its menu item stays lit there too.
+  const navPage = page === 'paper' ? 'practice' : page;
+  $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === navPage));
   renderTop();
-  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, size: pageSizer, market: pageMarket, paper: pagePaper, settings: pageSettings };
+  const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, size: pageSizer, market: pageMarket, paper: pagePaper, capital: pageCapital, settings: pageSettings };
   $('#main').innerHTML = (pages[page] || pageDashboard)();
   mountEquity();
   if (page === 'dashboard') { mountBreadthLive(); mountVsTile(); }
   announceRiskFree();
   if (page === 'practice') mountPractice();
-  if (page === 'insights') { mountWealth(); mountVsSection(); }
+  if (page === 'capital') { mountCapital(); mountWealth(); mountVsSection(); }
   if (page === 'size') mountSizer();
   if (page === 'market') mountMarket();
   if (page === 'paper') mountPaper();
@@ -130,6 +133,7 @@ export const actions = {
   },
   'acct-value-clear': async () => { try { await api('/api/settings', { method: 'PUT', body: { accountValue: null } }); await reload(); } catch (e) { toast(esc(e.message), 'err'); } },
   ...breadthActions,
+  ...capitalActions,
   'install-app': async () => {
     const p = S.installPrompt; if (!p) return;
     p.prompt();
