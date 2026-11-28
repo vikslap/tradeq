@@ -28,7 +28,7 @@ function setupCard(s, c) {
     <header class="card-h"><h3>${c.ready ? '⚙️ Capital settings' : '💰 Set up your trading capital'}</h3></header>
     ${c.ready ? '' : `<p class="muted" style="margin-top:0">Pick a fixed amount to trade with. Booked profit above it gets swept out to long-term investing every quarter; if the account falls to the kill switch, you stop and review before trading again. Swing and positional trades count here, long-term holdings don't.</p>`}
     <form id="cap-form" class="row" style="gap:12px;flex-wrap:wrap;align-items:flex-end">
-      <div class="field" style="margin:0"><label>Trading capital (₹)</label><input class="input num" name="capital" type="number" min="1" step="1000" value="${s.capital || ''}" style="max-width:160px" required></div>
+      <div class="field" style="margin:0"><label>Trading capital (₹)</label><input class="input num" name="capital" type="number" min="1" step="1" value="${s.capital || ''}" style="max-width:160px" required></div>
       <div class="field" style="margin:0"><label>Count trades from</label><input class="input" name="capitalSince" type="date" value="${s.capitalSince || today()}" required></div>
       <div class="field" style="margin:0"><label>Kill switch (% of capital)</label><input class="input num" name="killSwitchPct" type="number" min="10" max="100" step="1" value="${s.killSwitchPct ?? DEFAULT_KILL_PCT}" style="max-width:110px"></div>
       <button class="btn primary" type="submit">${c.ready ? 'Save' : 'Start tracking'}</button>
