@@ -62,4 +62,11 @@ export function searchInstruments(list, q, limit = 15) {
 
 /** Parse one exchange's CSV as the app keeps it (BSE: cash equity only). */
 // BFO: index futures only (Sensex, Bankex) — the option strikes would be a huge download for nothing.
-export const parseExchange = (ex, csv) => parseInstruments(String(csv)).filter((i) => !(ex === 'BSE' && i.t !== 'EQ') && !(ex === 'BFO' && i.t !== 'FUT'));
+export const parseExchange = (ex, csv) => parseInstruments(String(csv)).filter((i) => !(ex === 'BSE' && i.t !== 'EQ') && !((ex === 'BFO' || ex === 'CDS') && i.t !== 'FUT'));
+
+/** The contract to follow for a futures series: the nearest expiry, rolling to the next one 2 days before expiry. */
+export function currentContract(list, name, today, rollDays = 2) {
+  const roll = new Date(Date.parse(`${today}T00:00:00Z`) + rollDays * 86400000).toISOString().slice(0, 10);
+  const fut = list.filter((i) => i.n === name && i.t === 'FUT' && i.x && i.x >= today).sort((a, b) => a.x.localeCompare(b.x));
+  return fut.find((i) => i.x > roll) || fut[0] || null;
+}

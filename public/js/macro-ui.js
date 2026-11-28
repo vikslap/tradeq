@@ -3,8 +3,12 @@
 import { createChart, LineSeries, CrosshairMode } from '../vendor/lightweight-charts.mjs';
 import { api } from './state.js';
 import { $, esc, nf2 } from './util.js';
+import { listFor } from './kiteinst.js';
+import { currentContract } from '../instruments.js';
+import { rawCandles } from './breadth.js';
 
-const COLORS = { dxy: '#3b82f6', brent: '#f97316', gold: '#d4a017' };
+const COLORS = { dxy: '#3b82f6', brent: '#f97316', gold: '#d4a017', usdinr: '#3b82f6', crude: '#f97316', mgold: '#d4a017' };
+const SKEY = 'tq-macro-src';
 const RKEY = 'tq-macro-range'; const VKEY = 'tq-macro-view'; const HKEY = 'tq-macro-hidden';
 const get = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
 const put = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private */ } };
@@ -13,14 +17,53 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 const ist = (ms) => Math.floor(ms / 1000) + 19800;
 const M = { data: null, charts: [], timer: null, wired: false };
 
+const GLOBAL_NOTE = 'Global: DXY (ICE index), Brent and gold front-month futures (ICE, COMEX) via Yahoo Finance — futures about 10–15 minutes delayed.';
+const INDIA_NOTE = 'India (Kite, live): MCX GOLD (₹ per 10 g) and MCX CRUDEOIL (₹ per barrel) current-month futures and the NSE USDINR future — rupee-priced cousins of gold, crude and the dollar. Contracts roll to the next month 2 days before expiry.';
+const INDIA = [
+  { key: 'usdinr', ex: 'CDS', name: 'USDINR', label: 'US dollar in rupees', short: 'USDINR', unit: '₹ per $' },
+  { key: 'crude', ex: 'MCX', name: 'CRUDEOIL', label: 'MCX crude oil', short: 'MCX Crude', unit: '₹/bbl' },
+  { key: 'mgold', ex: 'MCX', name: 'GOLD', label: 'MCX gold', short: 'MCX Gold', unit: '₹/10 g' },
+];
+const SPAN = { '1d': ['5minute', 5], '5d': ['15minute', 8], '1mo': ['60minute', 32], '6mo': ['day', 184], '1y': ['day', 366] };
+const istDay = (ms) => new Date(ms + 330 * 60000).toISOString().slice(0, 10);
+
+// Kite: pick each current contract, then candles + a quote — all live from your Kite session.
+async function loadIndia(range) {
+  const today = istDay(Date.now());
+  const picks = [];
+  for (const m of INDIA) {
+    const c = currentContract(await listFor(m.ex), m.name, today);
+    if (!c) throw new Error(`No current ${m.name} contract found on ${m.ex}`);
+    picks.push({ ...m, contract: c });
+  }
+  const keys = picks.map((p) => `${p.ex}:${p.contract.s}`).join(',');
+  const quotes = (await api(`/api/kite/quote?i=${encodeURIComponent(keys)}`)).quotes || {};
+  const [interval, back] = SPAN[range] || SPAN['1d'];
+  const now = Date.now();
+  const series = [];
+  for (const p of picks) {
+    let pts = [];
+    try { pts = (await rawCandles(p.contract.k, interval, now - back * 86400000, now)).map((c) => [c[0], c[4]]); } catch { /* tile still shows the quote */ }
+    let prev = null;
+    if (range === '1d' && pts.length) { const last = istDay(pts.at(-1)[0]); const before = pts.filter((x) => istDay(x[0]) < last); prev = before.at(-1)?.[1] ?? null; pts = pts.filter((x) => istDay(x[0]) === last); }
+    const q = quotes[`${p.ex}:${p.contract.s}`] || {};
+    const last = q.last ?? pts.at(-1)?.[1] ?? null;
+    if (range === '1d') prev = q.prevClose ?? prev; else prev = pts[0]?.[1] ?? null;
+    series.push({ key: p.key, short: p.short, name: `${p.label} · ${p.contract.s}`, unit: p.unit, points: pts, last, prev, change: last != null && prev ? (last - prev) / prev : null, asOf: q.ltt || pts.at(-1)?.[0] || null });
+  }
+  return { range, series, source: 'india' };
+}
+
 const seg = (name, opts, val) => `<div class="seg seg-sm">${opts.map(([v, l]) => `<label><input type="radio" name="${name}" value="${v}" ${v === val ? 'checked' : ''} data-macro="${name}"><span>${l}</span></label>`).join('')}</div>`;
 
 export const macroCardShell = () => `<section class="card o-macro" id="mkt-macro">
-  <header class="card-h" style="flex-wrap:wrap;gap:8px"><h3>🌍 Global markets</h3>${seg('range', [['1d', '1D'], ['5d', '5D'], ['1mo', '1M'], ['6mo', '6M'], ['1y', '1Y']], get(RKEY, '1d'))}</header>
+  <header class="card-h" style="flex-wrap:wrap;gap:8px"><h3>🌍 Global markets</h3>${seg('src', [['global', 'Global'], ['india', 'India (Kite)']], get(SKEY, 'global'))}</header>
+  <div style="margin:-4px 0 10px">${seg('range', [['1d', '1D'], ['5d', '5D'], ['1mo', '1M'], ['6mo', '6M'], ['1y', '1Y']], get(RKEY, '1d'))}</div>
+  <div id="macro-note"></div>
   <div id="macro-tiles" class="macro-tiles"><div class="empty-sm">Loading…</div></div>
   <div class="row" style="justify-content:space-between;align-items:center;margin:10px 0 6px;gap:8px;flex-wrap:wrap">${seg('view', [['overlay', '% change together'], ['separate', 'Each on its own']], get(VKEY, 'overlay'))}<span class="sub" id="macro-asof" style="font-size:11px"></span></div>
   <div id="macro-chart"></div>
-  <p class="faint" style="font-size:11px;margin:8px 0 0">Tap a tile to hide or show it. A stronger dollar (DXY up) usually means foreign money leaves India and the rupee weakens; Brent up is a headwind for India (imports most of its oil); gold up often signals caution. DXY: ICE index · Brent and gold: front-month futures (ICE, COMEX) — via Yahoo Finance, about 10–15 minutes delayed for futures.</p>
+  <p class="faint" style="font-size:11px;margin:8px 0 0">Tap a tile to hide or show it. A stronger dollar (DXY up) usually means foreign money leaves India and the rupee weakens; Brent up is a headwind for India (imports most of its oil); gold up often signals caution. <span id="macro-src-note">${get(SKEY, 'global') === 'india' ? INDIA_NOTE : GLOBAL_NOTE}</span></p>
 </section>`;
 
 function tiles() {
@@ -62,7 +105,8 @@ function charts() {
     const el = document.createElement('div'); box.appendChild(el);
     const ch = createChart(el, { ...opts(240), width, localization: { priceFormatter: (p) => `${p >= 0 ? '+' : ''}${p.toFixed(2)}%` } });
     for (const s of shown) {
-      const base = M.data.range === '1d' && s.prev ? s.prev : s.points[0][1];
+      const first = s.points[0][1];
+      const base = M.data.range === '1d' && s.prev && Math.abs(s.prev / first - 1) < 0.2 ? s.prev : first; // guard against a mismatched previous close
       const ln = ch.addSeries(LineSeries, { color: COLORS[s.key], lineWidth: 2, priceLineVisible: false, title: s.short });
       ln.setData(dedupe(s.points.map(([t, v]) => ({ time: ist(t), value: ((v - base) / base) * 100 }))));
     }
@@ -80,10 +124,16 @@ function charts() {
 }
 const dedupe = (pts) => pts.filter((p, i) => i === 0 || p.time > pts[i - 1].time);
 
+// Global first (unless you chose India); if the global source fails, fall back to Kite.
 async function load() {
   const box = $('#macro-chart'); if (!box) return;
-  try { M.data = await api(`/api/macro?range=${get(RKEY, '1d')}`); tiles(); charts(); }
-  catch (e) { const t = $('#macro-tiles'); if (t) t.innerHTML = `<div class="note warn"><span>${esc(e.message)}</span></div>`; }
+  const range = get(RKEY, '1d'); const want = get(SKEY, 'global'); const note = $('#macro-note');
+  const show = (d, msg = '') => { M.data = d; if (note) note.innerHTML = msg; const sn = $('#macro-src-note'); if (sn) sn.textContent = d.source === 'india' ? INDIA_NOTE : GLOBAL_NOTE; tiles(); charts(); };
+  try {
+    if (want === 'india') return show(await loadIndia(range));
+    try { return show({ ...(await api(`/api/macro?range=${range}`)), source: 'global' }); }
+    catch (e) { show(await loadIndia(range), `<div class="note warn" style="margin-bottom:8px"><span>Global prices unavailable (${esc(e.message)}) — showing Kite's MCX gold, MCX crude and USDINR instead.</span></div>`); }
+  } catch (e) { const t = $('#macro-tiles'); if (t) t.innerHTML = `<div class="note warn"><span>${esc(e.message)}</span></div>`; if (note) note.innerHTML = ''; }
 }
 
 export async function mountMacro() {
@@ -92,6 +142,7 @@ export async function mountMacro() {
     document.addEventListener('change', (e) => {
       const k = e.target.dataset?.macro; if (!k) return;
       if (k === 'range') { put(RKEY, e.target.value); load(); }
+      if (k === 'src') { put(SKEY, e.target.value); load(); }
       if (k === 'view') { put(VKEY, e.target.value); charts(); }
     });
     document.addEventListener('click', (e) => {

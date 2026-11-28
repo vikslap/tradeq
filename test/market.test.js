@@ -118,3 +118,11 @@ test('heat colours and sector groups', () => {
   const g = groupSectors([{ sym: 'A', pct: 2, value: 3, sector: 'IT' }, { sym: 'B', pct: -1, value: 1, sector: 'IT' }, { sym: 'C', pct: 1, value: 1, sector: 'Banks' }]);
   assert.equal(g[0].name, 'IT'); assert.equal(g[0].pct, 1.25); assert.equal(g[0].up, 1); assert.equal(g[0].down, 1);
 });
+
+import { currentContract } from '../public/instruments.js';
+test('current futures contract rolls two days before expiry', () => {
+  const L = [{ n: 'GOLD', t: 'FUT', x: '2026-12-04', s: 'GOLD26DECFUT' }, { n: 'GOLD', t: 'FUT', x: '2027-02-05', s: 'GOLD27FEBFUT' }, { n: 'GOLDM', t: 'FUT', x: '2026-12-01', s: 'GOLDM' }, { n: 'GOLD', t: 'FUT', x: '2026-10-05', s: 'OLD' }];
+  assert.equal(currentContract(L, 'GOLD', '2026-11-28').s, 'GOLD26DECFUT');
+  assert.equal(currentContract(L, 'GOLD', '2026-12-03').s, 'GOLD27FEBFUT');
+  assert.equal(currentContract(L, 'CRUDEOIL', '2026-12-03'), null);
+});
