@@ -8,6 +8,7 @@ import { members500, members50, industries, loadBreadth } from './breadth.js';
 import { prefillSizer } from './sizer.js';
 import { breadthCardShell, mountBreadthLive } from './breadthlive.js';
 import { valuationCardShell, mountValuation } from './valuation-ui.js';
+import { macroCardShell, mountMacro } from './macro-ui.js';
 
 const UKEY = 'tq-breadth-universe'; // shared with the dashboard breadth card
 const SKEY = 'tq-heat-size';
@@ -26,10 +27,10 @@ const useg = (u) => `<div class="seg seg-sm" role="group" aria-label="Index">${[
 
 export function pageMarket() {
   const u = get(UKEY, 'n500') === 'n50' ? 'n50' : 'n500';
-  return `<div class="page-h"><div><h1>📊 Market</h1><p>How the whole market is doing today — breadth, the index through the day, every stock's move, and valuation.</p></div>
+  return `<div class="page-h"><div><h1>📊 Market</h1><p>How the whole market is doing today — breadth, the index through the day, every stock's move, global cues and valuation.</p></div>
     <div class="row" style="gap:8px;flex-wrap:wrap">${useg(u)}</div></div>
   <div class="mkt-page">
-    <div class="mkt-side">${breadthCardShell({ toggle: false })}${valuationCardShell()}</div>
+    <div class="mkt-side">${breadthCardShell({ toggle: false })}${macroCardShell()}${valuationCardShell()}</div>
     <div class="mkt-main">${heatCard()}</div>
   </div>`;
 }
@@ -37,6 +38,7 @@ export function pageMarket() {
 export async function mountMarket() {
   await mountBreadthLive().catch(() => {});
   mountValuation();
+  mountMacro();
   mountHeatmap();
 }
 

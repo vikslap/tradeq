@@ -188,7 +188,7 @@ export default {
       // so Kite (which rate-limits these downloads) is asked about once a day per list.
       const edgeKey = url.pathname.startsWith('/api/kite/instruments/') ? new Request(`https://tq-edge-cache${url.pathname}?d=${new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)}`) : null;
       if (edgeKey) { const hit = await caches.default.match(edgeKey).catch(() => null); if (hit) return hit; }
-      if (['/api/kite/raw-candles', '/api/kite/tokens', '/api/valuation'].includes(url.pathname) || url.pathname.startsWith('/api/kite/instruments/') || url.pathname.startsWith('/api/paper')) {
+      if (['/api/kite/raw-candles', '/api/kite/tokens', '/api/valuation', '/api/macro'].includes(url.pathname) || url.pathname.startsWith('/api/kite/instruments/') || url.pathname.startsWith('/api/paper')) {
         const row = await db.prepare("SELECT value FROM kv WHERE key = 'kite-session'").first();
         const storage = { get: async () => (row ? JSON.parse(row.value) : null), put: async () => {}, del: (k) => db.prepare('DELETE FROM kv WHERE key = ?').bind(k).run() };
         const kite = createKite({ apiKey: env.KITE_API_KEY, apiSecret: env.KITE_API_SECRET, storage, mock: /^(1|true|yes)$/i.test(env.KITE_MOCK || ''), clientSearch: true, getTrades: () => [] });
