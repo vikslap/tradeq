@@ -89,3 +89,10 @@ test('on an intrabar fill bar only the stop is checked, not the target', () => {
   assert.equal(stepBar(p, bar(100, 101, 97, 99), 5, { skipTarget: true }).closed, null);
   assert.equal(stepBar(p, bar(100, 101, 93, 99), 5, { skipTarget: true }).closed.exitReason, 'Stop');
 });
+
+import { heldOf } from '../public/practice.js';
+test('practice trade holding time in chart days and candles', () => {
+  const h = heldOf({ entryTime: '2023-07-03T03:45:00Z', exitTime: '2023-07-17T03:45:00Z', entryBar: 100, exitBar: 110 });
+  assert.equal(Math.round(h.days), 14); assert.equal(h.bars, 10);
+  assert.equal(heldOf({ entryTime: '2023-07-03T03:45:00Z' }), null);
+});

@@ -189,17 +189,32 @@ function setupHtml(st) {
     </form></section>`;
 }
 
+// How long a practice trade was held, in the chart's own (historical) time.
+export function heldOf(t) {
+  if (!t?.entryTime || !t?.exitTime) return null;
+  const ms = Date.parse(t.exitTime) - Date.parse(t.entryTime);
+  return { days: Math.max(0, ms / 86400000), bars: t.exitBar != null && t.entryBar != null ? t.exitBar - t.entryBar : null };
+}
+const heldLabel = (days) => (days >= 1 ? `${Math.round(days)} d` : days * 24 >= 1 ? `${Math.floor(days * 24)}h ${Math.round((days * 24 * 60) % 60)}m` : `${Math.max(1, Math.round(days * 1440))}m`);
+function heldCell(s) {
+  const hs = (s.trades || []).map(heldOf).filter(Boolean);
+  if (!hs.length) return '<span class="faint">—</span>';
+  const avg = hs.reduce((a, h) => a + h.days, 0) / hs.length;
+  const tip = hs.map((h, i) => `Trade ${i + 1}: ${heldLabel(h.days)}${h.bars != null ? ` · ${h.bars} ${s.interval === 'day' ? 'trading day' : 'candle'}${h.bars === 1 ? '' : 's'}` : ''}`).join('\n');
+  return `<span title="${ctx.esc(tip)}">${hs.length > 1 ? 'avg ' : ''}${heldLabel(avg)}</span>`;
+}
+
 function historyHtml(sessions) {
   if (!sessions.length) return '<div class="card empty"><div class="big">🎮</div><h2>No practice yet</h2><p>Start with <b>🎲 Surprise me</b> on daily candles in blind mode: read the chart, plan the trade, step forward and see if your stop and target hold up.</p></div>';
   const risk = ctx.state().settings.maxRiskPerTrade;
-  return `<section class="card"><header class="card-h"><h3>Sessions</h3><span class="sub">${sessions.length}</span></header><div class="table-wrap"><table class="tbl"><thead><tr><th>Played</th><th>Instrument</th><th>Candles</th><th class="r">Trades</th><th class="r">P&L</th><th class="r">Total R</th><th class="r">XP</th><th></th></tr></thead><tbody>
+  return `<section class="card"><header class="card-h"><h3>Sessions</h3><span class="sub">${sessions.length}</span></header><div class="table-wrap"><table class="tbl"><thead><tr><th>Played</th><th>Instrument</th><th>Candles</th><th class="r">Trades</th><th class="r" title="How long the trade was held, in chart time (days for daily candles)">Held</th><th class="r">P&L</th><th class="r">Total R</th><th class="r">XP</th><th></th></tr></thead><tbody>
     ${sessions.map((s) => {
       const res = (s.trades || []).map(tradeResult); const pnl = res.reduce((a, b) => a + (b.pnl || 0), 0); const tr = res.reduce((a, b) => a + (b.r || 0), 0);
       const xp = (s.trades || []).reduce((a, t) => a + scoreTrade(t, s.risk || risk).reduce((x, y) => x + y.xp, 0), 0);
       const hidden = s.blind && s.status === 'active';
       return `<tr><td class="muted">${new Date(s.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
         <td>${hidden ? '🙈 hidden' : `<span class="sym">${ctx.esc(s.symbol)}</span> <span class="faint">${new Date(s.start).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</span>`}</td>
-        <td>${IV_LABEL[s.interval]}</td><td class="r num">${(s.trades || []).length}</td><td class="r num ${cls(pnl)}">${money(pnl)}</td><td class="r num ${cls(tr)}">${rfmt(tr)}</td>
+        <td>${IV_LABEL[s.interval]}</td><td class="r num">${(s.trades || []).length}</td><td class="r num">${hidden ? '<span class="faint">—</span>' : heldCell(s)}</td><td class="r num ${cls(pnl)}">${money(pnl)}</td><td class="r num ${cls(tr)}">${rfmt(tr)}</td>
         <td class="r">${xp ? `<span class="xp-pill ${xp > 0 ? 'plus' : 'minus'}">${xp > 0 ? '+' : ''}${xp}</span>` : '<span class="faint">0</span>'}</td>
         <td class="r">${s.status === 'active' ? `<button class="btn sm primary" data-pa="resume" data-id="${s.id}">Resume</button>` : `<button class="btn sm" data-pa="review" data-id="${s.id}">Review</button>`} <button class="btn sm ghost" data-pa="delete" data-id="${s.id}">✕</button></td></tr>`;
     }).join('')}</tbody></table></div></section>`;
@@ -640,7 +655,7 @@ function openReview(s, data) {
     <div class="modal-b"><div class="kpis" style="margin-bottom:12px;grid-template-columns:repeat(4,1fr)">
       ${[['Trades', res.length], ['P&L', `<span class="${cls(pnl)}">${money(pnl)}</span>`], ['Total R', `<span class="${cls(tr)}">${rfmt(tr)}</span>`], ['Practice XP', `<span class="gold">${xp > 0 ? '+' : ''}${xp}</span>`]].map(([k, v]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}</div>
       <div data-chart-wrap><div class="row" style="margin-bottom:6px">${drawToolbar()}<span class="faint" style="font-size:12px">Shift+click to measure</span></div><div id="pa-review-chart" style="height:440px;position:relative"></div></div>
-      ${res.length ? `<div class="table-wrap" style="margin-top:12px"><table class="tbl"><tbody>${res.map((x) => `<tr><td><span class="side ${x.t.side}">${x.t.side}</span></td><td class="num">${nf0.format(x.t.qty)} @ ${nf2.format(x.t.entryPrice)} → ${nf2.format(x.t.exitPrice)}</td><td class="faint">${ctx.esc(x.t.exitReason)}</td><td class="r num ${cls(x.pnl)}">${money(x.pnl)}</td><td class="r num ${cls(x.r)}">${rfmt(x.r)}</td><td class="faint" style="white-space:normal;font-size:12px">${x.items.map((i) => `${i.xp > 0 ? '+' : ''}${i.xp} ${ctx.esc(i.label)}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-sm">No trades taken — sometimes the best trade is none.</div>'}
+      ${res.length ? `<div class="table-wrap" style="margin-top:12px"><table class="tbl"><tbody>${res.map((x) => `<tr><td><span class="side ${x.t.side}">${x.t.side}</span></td><td class="num">${nf0.format(x.t.qty)} @ ${nf2.format(x.t.entryPrice)} → ${nf2.format(x.t.exitPrice)}</td><td class="num muted">${heldOf(x.t) ? `held ${heldLabel(heldOf(x.t).days)}${heldOf(x.t).bars != null && s.interval === 'day' ? ` · ${heldOf(x.t).bars} trading days` : ''}` : ''}</td><td class="faint">${ctx.esc(x.t.exitReason)}</td><td class="r num ${cls(x.pnl)}">${money(x.pnl)}</td><td class="r num ${cls(x.r)}">${rfmt(x.r)}</td><td class="faint" style="white-space:normal;font-size:12px">${x.items.map((i) => `${i.xp > 0 ? '+' : ''}${i.xp} ${ctx.esc(i.label)}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-sm">No trades taken — sometimes the best trade is none.</div>'}
     </div></div>`, { dismissable: true });
   // Full chart including what happened after you stopped.
   const C = { text: css('--muted'), border: css('--border'), green: css('--green'), red: css('--red'), accent: css('--accent'), gold: css('--gold') };
