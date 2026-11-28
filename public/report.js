@@ -73,3 +73,46 @@ export function yearsWithActivity(trades, today) {
   for (const t of trades) { if (!bucketOf(t)) continue; for (const e of exitsOf(t)) if (e.time) s.add(fyOf(istDay(e.time))); }
   return [...s].sort().reverse();
 }
+
+// ---------- monthly returns grid (like a fund's performance capsule) ----------
+/** Every exit as a dated P&L event (after its share of charges), for trades in `bucket`. */
+export function exitEvents(trades, bucket = 'eq-tr') {
+  const keep = inBucket(bucket); const out = [];
+  for (const t of trades) {
+    if (!keep(t) || t.entryPrice == null) continue;
+    const m = metrics(t); const exits = exitsOf(t); const exQty = exits.reduce((a, e) => a + (e.qty || 0), 0);
+    for (const e of exits) if (e.qty && e.time) out.push({ day: istDay(e.time), pnl: (e.price - t.entryPrice) * m.dir * e.qty - m.charges * (e.qty / exQty) });
+  }
+  return out.sort((a, b) => a.day.localeCompare(b.day));
+}
+
+/**
+ * Month-by-month return: that month's booked P&L ÷ the account at the start of the month
+ * (capital + earlier P&L − earlier sweeps). Year total compounds the months.
+ * basis 'cal' → Jan–Dec columns; 'fy' → Apr–Mar (labelled by financial year).
+ */
+export function monthlyReturns(events, { capital, sweeps = [], basis = 'cal' } = {}) {
+  if (!(capital > 0) || !events.length) return { years: [], rows: [] };
+  const byMonth = new Map();
+  for (const e of events) { const k = e.day.slice(0, 7); byMonth.set(k, (byMonth.get(k) || 0) + e.pnl); }
+  const sw = [...sweeps].filter((s) => s.date && s.amount > 0).sort((a, b) => a.date.localeCompare(b.date));
+  const first = events[0].day.slice(0, 7); const last = events.at(-1).day.slice(0, 7);
+  const months = []; for (let d = new Date(`${first}-01T00:00:00Z`); d.toISOString().slice(0, 7) <= last; d.setUTCMonth(d.getUTCMonth() + 1)) months.push(d.toISOString().slice(0, 7));
+  const yearOf = (k) => (basis === 'fy' ? fyOf(`${k}-15`) : k.slice(0, 4));
+  const slotOf = (k) => { const m = Number(k.slice(5)); return basis === 'fy' ? (m + 8) % 12 : m - 1; }; // fy: Apr = 0 … Mar = 11
+  let equity = capital; const cells = {};
+  for (const k of months) {
+    for (const s of sw) if (s.date.slice(0, 7) < k && !s._done) { equity -= s.amount; s._done = true; }
+    const pnl = byMonth.get(k) || 0;
+    const y = yearOf(k); (cells[y] ||= Array(12).fill(null));
+    cells[y][slotOf(k)] = { month: k, pnl, pct: byMonth.has(k) && equity > 0 ? pnl / equity : (byMonth.has(k) ? null : 0), start: equity, traded: byMonth.has(k) };
+    equity += pnl;
+  }
+  for (const s of sw) delete s._done;
+  const years = Object.keys(cells).sort().reverse();
+  const totals = Object.fromEntries(years.map((y) => {
+    const cs = cells[y].filter(Boolean);
+    return [y, { pct: cs.reduce((a, c) => a * (1 + (c.pct || 0)), 1) - 1, pnl: cs.reduce((a, c) => a + c.pnl, 0) }];
+  }));
+  return { years, cells, totals, labels: basis === 'fy' ? ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'January', 'February', 'March'] : ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] };
+}

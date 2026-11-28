@@ -31,3 +31,21 @@ test('summary by year: partial exits land in their own year; totals add up', () 
   assert.equal(all.all.net, 350 + 250 + 100);
   assert.deepEqual(yearsWithActivity([lt, sw, fu, open], '2026-11-28'), ['FY26-27', 'FY25-26']);
 });
+
+import { exitEvents, monthlyReturns } from '../public/report.js';
+test('monthly returns compound on the running account, after sweeps', () => {
+  const ev = [{ day: '2025-01-10', pnl: 10000 }, { day: '2025-03-05', pnl: -5500 }, { day: '2026-01-20', pnl: 2000 }];
+  const r = monthlyReturns(ev, { capital: 100000, sweeps: [{ date: '2025-02-01', amount: 0 }] });
+  assert.deepEqual(r.years, ['2026', '2025']);
+  assert.ok(Math.abs(r.cells['2025'][0].pct - 0.1) < 1e-12);
+  assert.equal(r.cells['2025'][1].pct, 0); assert.equal(r.cells['2025'][1].traded, false);
+  assert.ok(Math.abs(r.cells['2025'][2].pct - -0.05) < 1e-12); // -5,500 on 1,10,000
+  assert.ok(Math.abs(r.totals['2025'].pct - (1.1 * 0.95 - 1)) < 1e-12);
+  const s = monthlyReturns(ev, { capital: 100000, sweeps: [{ date: '2025-02-10', amount: 10000 }] });
+  assert.ok(Math.abs(s.cells['2025'][2].pct - -0.055) < 1e-12); // swept back to 1,00,000 before March
+  const fy = monthlyReturns(ev, { capital: 100000, basis: 'fy' });
+  assert.deepEqual(fy.years, ['FY25-26', 'FY24-25']); assert.ok(fy.cells['FY24-25'][9].pct > 0); // January sits in slot 9
+  const t = { exchange: 'NSE', segment: 'EQ', horizon: 'SWING', side: 'LONG', status: 'CLOSED', qty: 10, entryPrice: 100, entryTime: '2025-01-02T04:00:00Z', charges: 0, exits: [{ qty: 10, price: 110, time: '2025-01-09T05:00:00Z' }] };
+  assert.deepEqual(exitEvents([t], 'eq-tr'), [{ day: '2025-01-09', pnl: 100 }]);
+  assert.deepEqual(exitEvents([t], 'fno'), []);
+});

@@ -5,6 +5,7 @@ import { pageMarket, mountMarket } from './heatmap-page.js';
 import { pagePaper, mountPaper } from './paper.js';
 import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
 import { mountReport, mountReportTile } from './report-ui.js';
+import { mountMonthly } from './monthly-ui.js';
 import { pageCapital, mountCapital, capitalActions } from './capital-page.js';
 import { announceRiskFree } from './riskfree-alerts.js';
 import { computeGame, weekStart, isTrading, HORIZON_LABEL } from '../game.js';
@@ -57,7 +58,7 @@ export function render() {
   if (page === 'dashboard') { mountBreadthLive(); mountReportTile(); }
   announceRiskFree();
   if (page === 'practice') mountPractice();
-  if (page === 'capital') { mountCapital(); mountWealth(); mountReport(); }
+  if (page === 'capital') { mountCapital(); mountWealth(); mountReport(); mountMonthly(); }
   if (page === 'size') mountSizer();
   if (page === 'market') mountMarket();
   if (page === 'paper') mountPaper();

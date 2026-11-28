@@ -4,6 +4,7 @@ import { capitalState, cleanSweeps, STCG_RATE, DEFAULT_KILL_PCT } from '../capit
 import { isTrading } from '../game.js';
 import { wealthSection, yearlySection } from './wealth.js';
 import { reportSectionShell } from './report-ui.js';
+import { monthlyShell } from './monthly-ui.js';
 import { unrealised } from './dashboard.js';
 import { S, api, reload, ltpFor, yearSelect } from './state.js';
 import { confirmBox, toast } from './ui.js';
@@ -98,7 +99,7 @@ export function capitalLiveInner(c = capital()) {
 export function pageCapital() {
   const s = S.state.settings; const c = capital();
   const head = `<div class="page-h"><div><h1>💰 Capital</h1><p>Your trading base, profit sweeps to long-term investing, and whether trading beats an index fund.</p></div><div class="row" style="gap:8px;flex-wrap:wrap">${yearSelect()}</div></div>`;
-  const money_ = reportSectionShell() + `<details class="card rc-more" style="margin-bottom:16px"><summary><b>More detail</b> <span class="sub">whole-account return from your ledger (deposits, withdrawals, fees), and yearly charges</span></summary>${wealthSection()}${yearlySection()}</details>`;
+  const money_ = reportSectionShell() + monthlyShell() + `<details class="card rc-more" style="margin-bottom:16px"><summary><b>More detail</b> <span class="sub">whole-account return from your ledger (deposits, withdrawals, fees), and yearly charges</span></summary>${wealthSection()}${yearlySection()}</details>`;
   if (!c.ready) return head + setupCard(s, c) + money_;
   return `${head}<div id="cap-live">${capitalLiveInner(c)}</div>
     ${sweepCard(c)}${taxCard(c)}${money_}${setupCard(s, c)}`;
