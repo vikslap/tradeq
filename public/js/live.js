@@ -7,6 +7,7 @@ import { journalRows } from './journal.js';
 import { renderDrawer } from './drawer.js';
 import { renderTop } from './main.js';
 import { capitalLiveInner } from './capital-page.js';
+import { repaintReport } from './report-ui.js';
 
 
 // =====================================================================
@@ -37,6 +38,7 @@ export function paintLive() {
   const ln = $('#live-note'); if (ln) ln.innerHTML = liveNote();
   const jb = $('#journal-body'); if (jb) jb.innerHTML = journalRows();
   const cl = $('#cap-live'); if (cl) cl.innerHTML = capitalLiveInner();
+  repaintReport();
   if (S.drawerId) { const t = S.state.trades.find((x) => x.id === S.drawerId); if (t?.status === 'OPEN') { renderDrawer(); if (S.cv?.inst && ltpFor(t)) S.cv.inst.setLive(ltpFor(t)); } }
   if (S.big?.inst) { const t = findTrade(S.big.tradeId); if (t?.status === 'OPEN' && ltpFor(t)) S.big.inst.setLive(ltpFor(t)); }
 }

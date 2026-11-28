@@ -40,12 +40,12 @@ async function fetchMarks(need) {
 }
 
 /** Work it all out (cached until trades, prices or the day change). */
-export async function vsIndex({ fetchCloses = true } = {}) {
+export async function vsIndex({ fetchCloses = true, filter } = {}) {
   const scheme = S.state.settings.benchmarkScheme || '120716';
   S._bench ||= {};
   const b = (S._bench[scheme] ||= await api(`/api/benchmark?scheme=${scheme}`));
   const d = today();
-  const slices = slicesOf(S.state.trades, ltpFor, d);
+  const slices = slicesOf(S.state.trades, ltpFor, d, filter);
   if (!slices.length) return { empty: true };
   const need = marksNeeded(slices);
   const m = fetchCloses ? await fetchMarks(need) : marks();
@@ -113,7 +113,7 @@ export async function mountVsSection() {
 }
 
 // Rolling 12-month gap: one bar per month-end window (green = ahead of the index).
-function rollingBlock(r) {
+export function rollingBlock(r) {
   const ws = r.rolling.windows;
   if (!ws.length) return `<h3 class="pp-h" style="margin-top:18px">Rolling 12 months</h3><div class="empty-sm">Needs a little over a year of trades — each bar compares the 12 months up to a month-end.</div>`;
   const W = 640; const H = 150; const pad = 4; const bw = Math.max(3, Math.min(24, (W - pad * 2) / ws.length - 2));
@@ -124,12 +124,12 @@ function rollingBlock(r) {
   const avg = (a) => (a.length ? a.reduce((s, w) => s + w.gap, 0) / a.length : null);
   const trend = recent.length && older.length ? (avg(recent) > avg(older) ? 'improving — the last 6 windows are better than the 6 before' : 'slipping — the last 6 windows are worse than the 6 before') : null;
   return `<h3 class="pp-h" style="margin-top:18px">Rolling 12 months <span class="sub">your gap vs the index, at each month-end</span></h3>
-    <div class="sub" style="margin-bottom:6px">Last 12 months: <b class="${cls(last.gap)}">${rsS(last.gap)}</b> (${pp(last.youPct)} vs ${pp(last.idxPct)} on money used) · you beat the index in <b>${r.rolling.beat} of ${r.rolling.counted}</b> rolling years${trend ? ` · ${trend}` : ''}.</div>
+    <div class="sub" style="margin-bottom:6px">Last 12 months: <b class="${cls(last.gap)}">${rsS(last.gap)}</b> vs the index · you beat the index in <b>${r.rolling.beat} of ${r.rolling.counted}</b> rolling years${trend ? ` · ${trend}` : ''}.</div>
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="roll-chart" role="img" aria-label="Rolling 12-month gap vs the index"><line x1="0" x2="${W}" y1="${mid}" y2="${mid}" stroke="var(--border)"/>${bars}</svg>
     <div class="sub" style="font-size:11px;display:flex;justify-content:space-between"><span>${esc(ws[0].to.slice(0, 7))}</span><span>faded bars: no exits in that window</span><span>${esc(last.to.slice(0, 7))}</span></div>`;
 }
 
-function ddBlock(r) {
+export function ddBlock(r) {
   const y = r.dd.you; const i = r.dd.idx;
   const ddPct = (d) => (r.avgDeployed ? ` · ${((d / r.avgDeployed) * 100).toFixed(1)}% of money used` : '');
   const k = (label, v, s, c = '') => `<div class="kpi"><div class="k">${label}</div><div class="v mono ${c}">${v}</div><div class="s">${s}</div></div>`;

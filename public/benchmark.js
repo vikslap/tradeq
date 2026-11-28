@@ -34,10 +34,10 @@ export function navLookup(nav) {
  * Slices of the trades that count. ltpFor(t) gives today's price for open trades (or null).
  * Each slice: { t, sym, side, start, end, cost, endPrice, qty, charges, open, unpriced }.
  */
-export function slicesOf(trades, ltpFor, today) {
+export function slicesOf(trades, ltpFor, today, filter = inBenchmark) {
   const out = [];
   for (const t of trades) {
-    if (!inBenchmark(t) || !t.qty || !t.entryPrice || !t.entryTime) continue;
+    if (!filter(t) || !t.qty || !t.entryPrice || !t.entryTime) continue;
     const start = istDay(t.entryTime);
     const exits = exitsOf(t);
     const ch = tradeCharges(t).total || 0;

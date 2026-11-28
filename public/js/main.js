@@ -4,7 +4,7 @@ import { pageSizer, mountSizer } from './sizer.js';
 import { pageMarket, mountMarket } from './heatmap-page.js';
 import { pagePaper, mountPaper } from './paper.js';
 import { mountWealth, importLedgerFiles, setWealthScope } from './wealth.js';
-import { mountVsTile, mountVsSection } from './vsindex.js';
+import { mountReport, mountReportTile } from './report-ui.js';
 import { pageCapital, mountCapital, capitalActions } from './capital-page.js';
 import { announceRiskFree } from './riskfree-alerts.js';
 import { computeGame, weekStart, isTrading, HORIZON_LABEL } from '../game.js';
@@ -54,10 +54,10 @@ export function render() {
   const pages = { dashboard: pageDashboard, journal: pageJournal, insights: pageInsights, review: pageReview, practice: pagePractice, achievements: pageAchievements, size: pageSizer, market: pageMarket, paper: pagePaper, capital: pageCapital, settings: pageSettings };
   $('#main').innerHTML = (pages[page] || pageDashboard)();
   mountEquity();
-  if (page === 'dashboard') { mountBreadthLive(); mountVsTile(); }
+  if (page === 'dashboard') { mountBreadthLive(); mountReportTile(); }
   announceRiskFree();
   if (page === 'practice') mountPractice();
-  if (page === 'capital') { mountCapital(); mountWealth(); mountVsSection(); }
+  if (page === 'capital') { mountCapital(); mountWealth(); mountReport(); }
   if (page === 'size') mountSizer();
   if (page === 'market') mountMarket();
   if (page === 'paper') mountPaper();
