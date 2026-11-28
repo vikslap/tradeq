@@ -1,4 +1,5 @@
 import { exitsOf, tradeCharges } from './charges.js';
+import { capitalEvents } from './capital.js';
 // TradeQuest gamification engine.
 // Everything is derived from the journal on every load, so editing or deleting a
 // trade can never leave XP out of sync. XP rewards PROCESS, not profit.
@@ -407,6 +408,9 @@ export function computeGame(state) {
   for (const [k, v] of Object.entries(months).sort()) {
     if (k < thisMonth && v.n >= 5 && v.net > 0) { c.greenMonths++; if (!earned.greenmonth) earned.greenmonth = `${k}-28T12:00:00.000Z`; }
   }
+
+  // Capital rules: sweeping profit out, and not trading through the kill switch.
+  events.push(...capitalEvents(state));
 
   for (const b of BADGES) if (!earned[b.id] && b.val(c) >= b.goal) earned[b.id] = new Date().toISOString();
   events.sort((a, b) => new Date(b.at) - new Date(a.at));

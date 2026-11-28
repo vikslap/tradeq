@@ -1,4 +1,4 @@
-// Insights → "Am I beating an index fund?" and "Profit and charges by year".
+// Capital → "Am I beating an index fund?" and "Profit and charges by year".
 // Built from the Zerodha funds ledger (money in/out, account fees) and the journal.
 import { parseLedger, cashFlows, ledgerByYear, ledgerCash, shadowPortfolio, fyOf, fyRange, FEE_KINDS } from '../ledger.js';
 import { exitsOf, tradeCharges } from '../charges.js';

@@ -2,6 +2,7 @@
 // with Kite's order window (regular / AMO / cover / iceberg, Market / Limit / SL / SL-M,
 // CNC / MIS / MTF / NRML, Day / IOC / TTL, disclosed qty, stoploss & target), GTTs, positions,
 // holdings and stats. Orders are simulated on the server; nothing reaches your real Kite account.
+import { practiceTabs } from '../practice.js';
 import { S, api } from './state.js';
 import { $, $$, esc, nf2, nf0, money, cls, paint } from './util.js';
 import { openModal, closeModal, confirmBox, toast } from './ui.js';
@@ -34,8 +35,9 @@ const ltp = (x) => P.data?.quotes?.[kOf(x)]?.ltp ?? null;
 // ---------------------------------------------------------------- page
 export function pagePaper() {
   P.tab = P.tab || get(TKEY, 'positions');
-  return `<div class="page-h"><div><h1>📝 Paper trading</h1><p>Live Kite prices, Kite's order types — your own ₹ practice account. Nothing here reaches your real account.</p></div>
+  return `<div class="page-h"><div><h1>🎮 Practice</h1><p>Live Kite prices, Kite's order types — your own ₹ practice account. Nothing here reaches your real account.</p></div>
     <div id="pp-status" class="pp-status"></div></div>
+  ${practiceTabs('paper')}
   <div class="pp-grid">
     <aside class="pp-side">
       <section class="card pp-funds" id="pp-funds"><div class="empty-sm">Loading…</div></section>

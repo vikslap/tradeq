@@ -146,6 +146,9 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 const toTime = (ms, iv) => (iv === 'day' ? new Date(ms + 19800000).toISOString().slice(0, 10) : Math.floor(ms / 1000) + 19800);
 const fmtBar = (ms, iv) => new Date(ms).toLocaleString('en-IN', iv === 'day' ? { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' } : { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+/** Tabs shared by the two Practice pages: chart replay (#/practice) and live paper trading (#/paper). */
+export const practiceTabs = (on) => `<nav class="ptabs" aria-label="Practice modes"><a href="#/practice" class="${on === 'replay' ? 'on' : ''}">🎮 Chart replay</a><a href="#/paper" class="${on === 'paper' ? 'on' : ''}">📝 Live paper trading</a></nav>`;
+
 export function pagePractice() {
   const st = ctx.state();
   const sessions = st.practice?.sessions || [];
@@ -153,6 +156,7 @@ export function pagePractice() {
   const active = G && G.session.status === 'active';
   return `<div class="page-h"><div><h1>🎮 Practice</h1><p>Replay real charts bar by bar and trade them with paper money. Nothing here touches your journal or Zerodha.</p></div>
     ${active ? '<button class="btn" data-pa="end">🏁 End session</button>' : ''}</div>
+  ${practiceTabs('replay')}
   <div class="kpis" style="margin-bottom:16px">
     ${[['Practice XP', `<span class="gold">${nf0.format(P.xp)}</span>`, 'separate from your journal XP'], ['Sessions', P.sessions, `${P.trades} paper trades`],
       ['Win rate', P.winRate == null ? '—' : `${Math.round(P.winRate * 100)}%`, `${P.wins} wins`], ['Avg R', `<span class="${cls(P.avgR)}">${rfmt(P.avgR)}</span>`, 'per paper trade'],
